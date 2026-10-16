@@ -281,10 +281,13 @@ async def cancel_activation(callback: CallbackQuery):
         {"activation_id": act_id}, {"$set": {"status": "CANCELLED"}}
     )
 
-    await callback.message.edit_text(
-        "❌ **অর্ডারটি সফলভাবে বাতিল করা হয়েছে।** ওয়েবসাইট থেকেও নম্বর রিলিজ করা হয়েছে।",
-        parse_mode="MARKDOWN",
-    )
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    await callback.answer()
+    await callback.message.answer("অর্ডারটি বাতিল করা হয়েছে")
 
 
 # ==================== DEPOSIT SYSTEM ====================
@@ -486,7 +489,7 @@ async def execute_broadcast(message: Message, state: FSMContext):
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
-    print("Railway Bot Running with Bangla Script...")
+    print("Railway Bot Running with Updated Cancel Logic...")
     await dp.start_polling(bot)
 
 
