@@ -23,7 +23,6 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 SMSBOWER_API_KEY = os.getenv("SMSBOWER_API_KEY")
 MONGO_URI = os.getenv("MONGO_URI")
 
-# OTP যে গ্রুপে ফরওয়ার্ড হবে সেই গ্রুপের ID (যেমন: -100123456789)
 OTP_GROUP_ID = int(os.getenv("OTP_GROUP_ID", "0"))
 # =======================================================
 
@@ -50,7 +49,6 @@ async def set_setting(key, value):
     )
 
 
-# Main Reply Keyboard Setup
 def get_main_keyboard(user_id: int):
     buttons = [
         [
@@ -84,7 +82,7 @@ async def cmd_start(message: Message):
     is_on = await get_setting("bot_status", True)
     if not is_on and user_id != ADMIN_ID:
         await message.answer(
-            "⚠️ বট বর্তমানে মেইনটেন্যান্স কাজের জন্য বন্ধ রয়েছে।"
+            "⚠️ Bot bortomane maintenance kajer jonno bondho ache."
         )
         return
 
@@ -99,7 +97,7 @@ async def cmd_start(message: Message):
         )
 
     await message.answer(
-        "স্বাগতম! আমাদের বট থেকে খুব সহজে ভার্চুয়াল নম্বর কিনতে পারেন:",
+        "Swagotom! Amader bot theke khub shohoje virtual number kinte paren:",
         reply_markup=get_main_keyboard(user_id),
     )
 
@@ -112,7 +110,6 @@ async def show_balance(message: Message):
     user_bal = user.get("balance", 0.0) if user else 0.0
 
     if user_id == ADMIN_ID:
-        # Fetch Web Balance from SMSBower API
         api_url = f"https://smsbower.page/stubs/handler_api.php?api_key={SMSBOWER_API_KEY}&action=getBalance"
         async with aiohttp.ClientSession() as session:
             async with session.get(api_url) as resp:
@@ -130,7 +127,7 @@ async def show_balance(message: Message):
             f"🤖 **Bot Internal Balance:** `${user_bal:.2f}`"
         )
     else:
-        msg_text = f"💰 **আপনার বর্তমান ব্যালেন্স:** `${user_bal:.2f}`"
+        msg_text = f"💰 **Apnar bortoman balance:** `${user_bal:.2f}`"
 
     await message.answer(msg_text, parse_mode="MARKDOWN")
 
@@ -150,7 +147,7 @@ async def buy_number_menu(message: Message):
         ]
     )
     await message.answer(
-        "সার্ভিস নির্বাচন করুন:", reply_markup=keyboard
+        "Service nirbachon korun:", reply_markup=keyboard
     )
 
 
@@ -160,22 +157,14 @@ async def process_buy_colombia(callback: CallbackQuery):
     user = await users_col.find_one({"user_id": user_id})
     wa_price = float(await get_setting("wa_price", 0.095))
 
-    # Check Max Price Lock (Strictly <= 0.095$)
-    if wa_price > 0.095:
-        await callback.answer(
-            "❌ প্রাইস লক লিমিট অতিক্রম করেছে! সার্ভিস উপলব্ধ নেই।",
-            show_alert=True,
-        )
-        return
-
     if not user or user.get("balance", 0.0) < wa_price:
         await callback.answer(
-            "❌ আপনার পর্যাপ্ত ব্যালেন্স নেই। ডিপোজিট করুন।", show_alert=True
+            "❌ Apnar porjapto balance nei. Deposit korun.", show_alert=True
         )
         return
 
-    # API Request for Colombia WhatsApp (Country=33, Service=wa)
-    url = f"https://smsbower.page/stubs/handler_api.php?api_key={SMSBOWER_API_KEY}&action=getNumber&service=wa&country=33"
+    # Website API strict maxPrice=0.095 lock
+    url = f"https://smsbower.page/stubs/handler_api.php?api_key={SMSBOWER_API_KEY}&action=getNumber&service=wa&country=33&maxPrice=0.095"
 
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
@@ -184,13 +173,12 @@ async def process_buy_colombia(callback: CallbackQuery):
     if response.startswith("ACCESS_NUMBER"):
         _, act_id, phone = response.split(":")
 
-        # Store active session into DB (Money is HOLD, not deducted yet)
         await active_numbers_col.insert_one(
             {
                 "user_id": user_id,
                 "activation_id": act_id,
                 "phone": phone,
-                "price": wa_price,
+                "price": wa_price,  # User deduct amount = Admin set price
                 "status": "WAITING_OTP",
             }
         )
@@ -207,38 +195,35 @@ async def process_buy_colombia(callback: CallbackQuery):
         )
 
         await callback.message.edit_text(
-            f"✅ **নম্বর সফলভাবে পাওয়া গেছে!**\n\n"
+            f"✅ **Number shohoje paowa gese!**\n\n"
             f"🇨🇴 **Country:** Colombia\n"
             f"📞 **Number:** `+{phone}`\n"
             f"🆔 **ID:** `{act_id}`\n\n"
-            f"⏳ **OTP-এর জন্য অপেক্ষা করা হচ্ছে...**\n"
-            f"*(OTP পাওয়ার পরই কেবল আপনার অ্যাকাউন্ট থেকে ${wa_price} কাটা হবে)*",
+            f"⏳ **OTP-er jonno opekkha kora hocche...**\n"
+            f"*(OTP paowar por-i kebol apnar account theke ${wa_price} kata hobe)*",
             reply_markup=keyboard,
             parse_mode="MARKDOWN",
         )
 
-        # Background Task to check OTP
         asyncio.create_task(
             poll_for_otp(user_id, act_id, phone, wa_price, callback.message)
         )
 
     else:
         await callback.answer(
-            "⚠️ বর্তমানে এই মূল্যে স্টক আউট রয়েছে! পরে চেষ্টা করুন।",
+            "⚠️ Bortomane stock out royeche! Pore chesta korun.",
             show_alert=True,
         )
 
 
-# Background Task: Check OTP Status
 async def poll_for_otp(
     user_id: int, act_id: str, phone: str, price: float, message: Message
 ):
     url = f"https://smsbower.page/stubs/handler_api.php?api_key={SMSBOWER_API_KEY}&action=getStatus&id={act_id}"
 
-    for _ in range(60):  # Check for 5 minutes (every 5 seconds)
+    for _ in range(60):
         await asyncio.sleep(5)
 
-        # Check if cancelled manually
         act_record = await active_numbers_col.find_one({"activation_id": act_id})
         if not act_record or act_record.get("status") == "CANCELLED":
             return
@@ -250,26 +235,22 @@ async def poll_for_otp(
         if res_text.startswith("STATUS_OK"):
             otp_code = res_text.split(":")[1]
 
-            # 1. Deduct Balance from User DB
             await users_col.update_one(
                 {"user_id": user_id}, {"$inc": {"balance": -price}}
             )
 
-            # 2. Update status in DB
             await active_numbers_col.update_one(
                 {"activation_id": act_id}, {"$set": {"status": "COMPLETED"}}
             )
 
-            # 3. Notify User
             await message.edit_text(
-                f"🎉 **OTP রিসিভ হয়েছে!**\n\n"
+                f"🎉 **OTP receive hoyeche!**\n\n"
                 f"📞 **Number:** `+{phone}`\n"
                 f"🔑 **OTP Code:** `{otp_code}`\n\n"
-                f"✅ আপনার অ্যাকাউন্ট থেকে `${price}` কেটে নেওয়া হয়েছে।",
+                f"✅ Apnar account theke `${price}` kete neowa hoyeche.",
                 parse_mode="MARKDOWN",
             )
 
-            # 4. Forward OTP to Telegram Group
             if OTP_GROUP_ID != 0:
                 try:
                     await bot.send_message(
@@ -288,24 +269,21 @@ async def poll_for_otp(
             return
 
 
-# Cancel Order Handler
 @router.callback_query(F.data.startswith("cancel_act_"))
 async def cancel_activation(callback: CallbackQuery):
     act_id = callback.data.split("_")[2]
 
-    # API Request to Cancel Activation on SMSBower
     url = f"https://smsbower.page/stubs/handler_api.php?api_key={SMSBOWER_API_KEY}&action=setStatus&status=8&id={act_id}"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             await resp.text()
 
-    # Update Status in DB
     await active_numbers_col.update_one(
         {"activation_id": act_id}, {"$set": {"status": "CANCELLED"}}
     )
 
     await callback.message.edit_text(
-        "❌ **অর্ডারটি সফলভাবে বাতিল করা হয়েছে।** ওয়েবসাইট থেকেও নম্বর রিলিজ করা হয়েছে।",
+        "❌ **Order-ti batil kora hoyeche.** Website theke-o number release kora hoyeche.",
         parse_mode="MARKDOWN",
     )
 
@@ -314,7 +292,7 @@ async def cancel_activation(callback: CallbackQuery):
 @router.message(F.text == "📥 Deposit")
 async def deposit_start(message: Message, state: FSMContext):
     await message.answer(
-        "💵 আপনি কত ডলার ডিপোজিট করতে চান?\n*(ন্যূনতম ডিপোজিট ০.৫০$)*"
+        "💵 Apni koto dollar deposit korte chan?\n*(Nyunotomo deposit 0.50$)*"
     )
     await state.set_state(DepositStates.waiting_for_amount)
 
@@ -324,7 +302,7 @@ async def process_deposit_amount(message: Message, state: FSMContext):
     try:
         amount = float(message.text)
         if amount < 0.5:
-            await message.answer("❌ মিনিমাম ডিপোজিট ০.৫০$ হতে হবে।")
+            await message.answer("❌ Minimum deposit 0.50$ hote hobe.")
             return
 
         await state.update_data(amount=amount)
@@ -334,18 +312,18 @@ async def process_deposit_amount(message: Message, state: FSMContext):
             f"📥 **Binance Deposit Info:**\n\n"
             f"🆔 **Binance Pay ID:** `{binance_id}`\n"
             f"💵 **Amount:** `${amount}`\n\n"
-            f"টাকা পাঠানোর পর TxID বা অর্ডার আইডি লিখুন:"
+            f"Taka pathanor por TxID ba Order ID likhun:"
         )
         await message.answer(text, parse_mode="MARKDOWN")
         await state.set_state(DepositStates.waiting_for_txid)
     except ValueError:
-        await message.answer("❌ সঠিক সংখ্যা লিখুন:")
+        await message.answer("❌ Sothik shongkha likhun:")
 
 
 @router.message(DepositStates.waiting_for_txid)
 async def process_deposit_txid(message: Message, state: FSMContext):
     await state.update_data(txid=message.text)
-    await message.answer("📸 এখন পেমেন্টের স্ক্রিনশট দিন:")
+    await message.answer("📸 Ekhon payment-er screenshot din:")
     await state.set_state(DepositStates.waiting_for_screenshot)
 
 
@@ -359,7 +337,7 @@ async def process_deposit_screenshot(message: Message, state: FSMContext):
 
     await state.clear()
     await message.answer(
-        "✅ ডিপোজিট রিকোয়েস্ট সাবমিট হয়েছে! অ্যাডমিন অ্যাপ্রুভ করবেন।"
+        "✅ Deposit request submit hoyeche! Admin approve korben."
     )
 
     admin_keyboard = InlineKeyboardMarkup(
@@ -379,7 +357,7 @@ async def process_deposit_screenshot(message: Message, state: FSMContext):
     await bot.send_photo(
         chat_id=ADMIN_ID,
         photo=photo_id,
-        caption=f"🔔 **নতুন ডিপোজিট!**\n\n👤 User: `{user_id}`\n💵 Amount: `${amount}`\n🔖 TxID: `{txid}`",
+        caption=f"🔔 **Notun Deposit!**\n\n👤 User: `{user_id}`\n💵 Amount: `${amount}`\n🔖 TxID: `{txid}`",
         reply_markup=admin_keyboard,
         parse_mode="MARKDOWN",
     )
@@ -400,7 +378,7 @@ async def approve_deposit(callback: CallbackQuery):
         caption=callback.message.caption + f"\n\n✅ **Approved**"
     )
     await bot.send_message(
-        user_id, f"🎉 ডিপোজিট অ্যাপ্রুভ হয়েছে! `${amount}` যোগ করা হয়েছে।"
+        user_id, f"🎉 Deposit approve hoyeche! `${amount}` jog kora hoyeche."
     )
 
 
@@ -414,7 +392,7 @@ async def reject_deposit(callback: CallbackQuery):
     await callback.message.edit_caption(
         caption=callback.message.caption + f"\n\n❌ **Rejected**"
     )
-    await bot.send_message(user_id, "❌ ডিপোজিট রিকোয়েস্টটি রিজেক্ট করা হয়েছে।")
+    await bot.send_message(user_id, "❌ Deposit request-ti reject kora hoyeche.")
 
 
 # ==================== ADMIN PANEL ====================
@@ -449,7 +427,7 @@ async def admin_panel(message: Message):
         ]
     )
     await message.answer(
-        "⚙️ **অ্যাডমিন প্যানেল:**", reply_markup=keyboard, parse_mode="MARKDOWN"
+        "⚙️ **Admin Panel:**", reply_markup=keyboard, parse_mode="MARKDOWN"
     )
 
 
@@ -459,7 +437,7 @@ async def admin_toggle_bot(callback: CallbackQuery):
         return
     current_status = await get_setting("bot_status", True)
     await set_setting("bot_status", not current_status)
-    await callback.answer("বট স্ট্যাটাস আপডেট হয়েছে!")
+    await callback.answer("Bot status update hoyeche!")
 
 
 @router.callback_query(F.data == "admin_set_wa_price")
@@ -467,7 +445,7 @@ async def admin_set_wa_price(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
         return
     await callback.message.answer(
-        "নতুন WhatsApp প্রাইস লিখুন (সর্বোচ্চ limit: 0.095):"
+        "Notun WhatsApp price likhun (Jemon: 0.11 ba 0.15):"
     )
     await state.set_state(AdminStates.waiting_for_wa_price)
 
@@ -476,21 +454,18 @@ async def admin_set_wa_price(callback: CallbackQuery, state: FSMContext):
 async def save_wa_price(message: Message, state: FSMContext):
     try:
         price = float(message.text)
-        if price > 0.095:
-            await message.answer("❌ প্রাইস $0.095 এর বেশি হওয়া যাবে না।")
-            return
         await set_setting("wa_price", price)
         await state.clear()
-        await message.answer(f"✅ WhatsApp প্রাইস আপডেট করা হয়েছে: ${price}")
+        await message.answer(f"✅ WhatsApp price update kora hoyeche: ${price}")
     except ValueError:
-        await message.answer("❌ সঠিক সংখ্যা দিন:")
+        await message.answer("❌ Sothik shongkha din:")
 
 
 @router.callback_query(F.data == "admin_broadcast")
 async def admin_broadcast(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
         return
-    await callback.message.answer("ব্রডকাস্ট মেসেজটি লিখুন:")
+    await callback.message.answer("Broadcast message-ti likhun:")
     await state.set_state(AdminStates.waiting_for_broadcast)
 
 
@@ -506,13 +481,13 @@ async def execute_broadcast(message: Message, state: FSMContext):
             success += 1
         except Exception:
             pass
-    await message.answer(f"✅ {success} জন ইউজারকে মেসেজ পাঠানো হয়েছে।")
+    await message.answer(f"✅ {success} jon user-ke message pathano hoyeche.")
 
 
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
-    print("Railway Bot Running with Reply Keyboard...")
+    print("Railway Bot Running with Custom Price Logic...")
     await dp.start_polling(bot)
 
 
