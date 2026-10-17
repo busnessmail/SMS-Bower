@@ -135,7 +135,7 @@ async def show_balance(message: Message):
 # ==================== BUY NUMBER & OTP HOLD ====================
 @router.message(F.text == "🛒 নম্বর কিনুন")
 async def buy_number_menu(message: Message):
-    wa_price = float(await get_setting("wa_price", 0.095))
+    wa_price = float(await get_setting("wa_price", 0.106))
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
