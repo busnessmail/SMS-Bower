@@ -73,7 +73,8 @@ class DepositStates(StatesGroup):
 
 class AdminStates(StatesGroup):
     waiting_for_broadcast = State()
-    waiting_for_wa_price = State()
+    waiting_for_colombia_price = State()
+    waiting_for_usa_price = State()
 
 
 @router.message(Command("start"))
@@ -135,18 +136,20 @@ async def show_balance(message: Message):
 # ==================== BUY NUMBER & OTP HOLD ====================
 @router.message(F.text == "🛒 নম্বর কিনুন")
 async def buy_number_menu(message: Message):
-    wa_price = float(await get_setting("wa_price", 0.106))
+    col_price = float(await get_setting("wa_colombia_price", 0.106))
+    usa_price = float(await get_setting("wa_usa_price", 0.134))
+
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=f"📱 হোয়াটসঅ্যাপ কলম্বিয়া (${wa_price})",
+                    text=f"📱 হোয়াটসঅ্যাপ কলম্বিয়া (${col_price})",
                     callback_data="buy_colombia_wa",
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text=f"📱 হোয়াটসঅ্যাপ USA Virtual (${wa_price})",
+                    text=f"📱 হোয়াটসঅ্যাপ USA Virtual (${usa_price})",
                     callback_data="buy_usa_wa",
                 )
             ],
@@ -157,20 +160,20 @@ async def buy_number_menu(message: Message):
     )
 
 
-# --- কলম্বিয়া হোয়াটসঅ্যাপ (Max Price: 0.106) ---
+# --- কলম্বিয়া হোয়াটসঅ্যাপ (API Max Price: 0.106) ---
 @router.callback_query(F.data == "buy_colombia_wa")
 async def process_buy_colombia(callback: CallbackQuery):
     user_id = callback.from_user.id
     user = await users_col.find_one({"user_id": user_id})
-    wa_price = float(await get_setting("wa_price", 0.106))
+    price_to_charge = float(await get_setting("wa_colombia_price", 0.106))
 
-    if not user or user.get("balance", 0.0) < wa_price:
+    if not user or user.get("balance", 0.0) < price_to_charge:
         await callback.answer(
             "❌ আপনার পর্যাপ্ত ব্যালেন্স নেই। ডিপোজিট করুন।", show_alert=True
         )
         return
 
-    # Colombia maxPrice 0.106 locked
+    # Colombia API call (maxPrice 0.106 locked)
     url = f"https://smsbower.page/stubs/handler_api.php?api_key={SMSBOWER_API_KEY}&action=getNumber&service=wa&country=33&maxPrice=0.106"
 
     async with aiohttp.ClientSession() as session:
@@ -185,7 +188,7 @@ async def process_buy_colombia(callback: CallbackQuery):
                 "user_id": user_id,
                 "activation_id": act_id,
                 "phone": phone,
-                "price": wa_price,
+                "price": price_to_charge,
                 "status": "WAITING_OTP",
             }
         )
@@ -207,14 +210,14 @@ async def process_buy_colombia(callback: CallbackQuery):
             f"📞 **নম্বর:** `+{phone}`\n"
             f"🆔 **আইডি:** `{act_id}`\n\n"
             f"⏳ **ওটিপি (OTP)-এর জন্য অপেক্ষা করা হচ্ছে...**\n"
-            f"*(ওটিপি পাওয়ার পরই কেবল আপনার অ্যাকাউন্ট থেকে ${wa_price} কাটা হবে)*",
+            f"*(ওটিপি পাওয়ার পরই কেবল আপনার অ্যাকাউন্ট থেকে ${price_to_charge} কাটা হবে)*",
             reply_markup=keyboard,
             parse_mode="MARKDOWN",
         )
 
         asyncio.create_task(
             poll_for_otp(
-                user_id, act_id, phone, wa_price, callback.message, country_name="কলম্বিয়া"
+                user_id, act_id, phone, price_to_charge, callback.message, country_name="কলম্বিয়া"
             )
         )
 
@@ -225,20 +228,20 @@ async def process_buy_colombia(callback: CallbackQuery):
         )
 
 
-# --- USA Virtual হোয়াটসঅ্যাপ (Max Price: 0.134) ---
+# --- USA Virtual হোয়াটসঅ্যাপ (API Max Price: 0.134) ---
 @router.callback_query(F.data == "buy_usa_wa")
 async def process_buy_usa(callback: CallbackQuery):
     user_id = callback.from_user.id
     user = await users_col.find_one({"user_id": user_id})
-    wa_price = float(await get_setting("wa_price", 0.106))
+    price_to_charge = float(await get_setting("wa_usa_price", 0.134))
 
-    if not user or user.get("balance", 0.0) < wa_price:
+    if not user or user.get("balance", 0.0) < price_to_charge:
         await callback.answer(
             "❌ আপনার পর্যাপ্ত ব্যালেন্স নেই। ডিপোজিট করুন।", show_alert=True
         )
         return
 
-    # USA maxPrice 0.134 locked
+    # USA API call (maxPrice 0.134 locked)
     url = f"https://smsbower.page/stubs/handler_api.php?api_key={SMSBOWER_API_KEY}&action=getNumber&service=wa&country=12&operator=cellular&maxPrice=0.134"
 
     async with aiohttp.ClientSession() as session:
@@ -253,7 +256,7 @@ async def process_buy_usa(callback: CallbackQuery):
                 "user_id": user_id,
                 "activation_id": act_id,
                 "phone": phone,
-                "price": wa_price,
+                "price": price_to_charge,
                 "status": "WAITING_OTP",
             }
         )
@@ -275,14 +278,14 @@ async def process_buy_usa(callback: CallbackQuery):
             f"📞 **নম্বর:** `+{phone}`\n"
             f"🆔 **আইডি:** `{act_id}`\n\n"
             f"⏳ **ওটিপি (OTP)-এর জন্য অপেক্ষা করা হচ্ছে...**\n"
-            f"*(ওটিপি পাওয়ার পরই কেবল আপনার অ্যাকাউন্ট থেকে ${wa_price} কাটা হবে)*",
+            f"*(ওটিপি পাওয়ার পরই কেবল আপনার অ্যাকাউন্ট থেকে ${price_to_charge} কাটা হবে)*",
             reply_markup=keyboard,
             parse_mode="MARKDOWN",
         )
 
         asyncio.create_task(
             poll_for_otp(
-                user_id, act_id, phone, wa_price, callback.message, country_name="USA Virtual"
+                user_id, act_id, phone, price_to_charge, callback.message, country_name="USA Virtual"
             )
         )
 
@@ -487,8 +490,9 @@ async def admin_panel(message: Message):
         return
 
     bot_status = await get_setting("bot_status", True)
-    status_text = "🟢 चालू" if bot_status else "🔴 বন্ধ"
-    wa_price = await get_setting("wa_price", 0.106)
+    status_text = "🟢 চালু" if bot_status else "🔴 বন্ধ"
+    col_price = await get_setting("wa_colombia_price", 0.106)
+    usa_price = await get_setting("wa_usa_price", 0.134)
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -500,8 +504,14 @@ async def admin_panel(message: Message):
             ],
             [
                 InlineKeyboardButton(
-                    text=f"হোয়াটসঅ্যাপ প্রাইস সেট করুন (${wa_price})",
-                    callback_data="admin_set_wa_price",
+                    text=f"🇨🇴 কলম্বিয়া প্রাইস (${col_price})",
+                    callback_data="admin_set_colombia_price",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"🇺🇸 USA Virtual প্রাইস (${usa_price})",
+                    callback_data="admin_set_usa_price",
                 )
             ],
             [
@@ -525,23 +535,48 @@ async def admin_toggle_bot(callback: CallbackQuery):
     await callback.answer("বট স্ট্যাটাস আপডেট করা হয়েছে!")
 
 
-@router.callback_query(F.data == "admin_set_wa_price")
-async def admin_set_wa_price(callback: CallbackQuery, state: FSMContext):
+# --- কলম্বিয়া প্রাইস সেটিং ---
+@router.callback_query(F.data == "admin_set_colombia_price")
+async def admin_set_col_price(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
         return
     await callback.message.answer(
-        "নতুন হোয়াটসঅ্যাপ প্রাইস লিখুন (যেমন: 0.11 বা 0.15):"
+        "নতুন **কলম্বিয়া হোয়াটসঅ্যাপ** প্রাইস লিখুন (যেমন: 0.11 বা 0.15):",
+        parse_mode="MARKDOWN",
     )
-    await state.set_state(AdminStates.waiting_for_wa_price)
+    await state.set_state(AdminStates.waiting_for_colombia_price)
 
 
-@router.message(AdminStates.waiting_for_wa_price)
-async def save_wa_price(message: Message, state: FSMContext):
+@router.message(AdminStates.waiting_for_colombia_price)
+async def save_col_price(message: Message, state: FSMContext):
     try:
         price = float(message.text)
-        await set_setting("wa_price", price)
+        await set_setting("wa_colombia_price", price)
         await state.clear()
-        await message.answer(f"✅ হোয়াটসঅ্যাপ প্রাইস আপডেট করা হয়েছে: ${price}")
+        await message.answer(f"✅ কলম্বিয়ার প্রাইস আপডেট করা হয়েছে: ${price}")
+    except ValueError:
+        await message.answer("❌ সঠিক সংখ্যা দিন:")
+
+
+# --- USA Virtual প্রাইস সেটিং ---
+@router.callback_query(F.data == "admin_set_usa_price")
+async def admin_set_usa_price(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    await callback.message.answer(
+        "নতুন **USA Virtual হোয়াটসঅ্যাপ** প্রাইস লিখুন (যেমন: 0.14 বা 0.20):",
+        parse_mode="MARKDOWN",
+    )
+    await state.set_state(AdminStates.waiting_for_usa_price)
+
+
+@router.message(AdminStates.waiting_for_usa_price)
+async def save_usa_price(message: Message, state: FSMContext):
+    try:
+        price = float(message.text)
+        await set_setting("wa_usa_price", price)
+        await state.clear()
+        await message.answer(f"✅ USA Virtual-এর প্রাইস আপডেট করা হয়েছে: ${price}")
     except ValueError:
         await message.answer("❌ সঠিক সংখ্যা দিন:")
 
@@ -572,7 +607,7 @@ async def execute_broadcast(message: Message, state: FSMContext):
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
-    print("Railway Bot Running with Updated Cancel Logic...")
+    print("Railway Bot Running with Updated Price Settings Logic...")
     await dp.start_polling(bot)
 
 
