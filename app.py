@@ -143,7 +143,13 @@ async def buy_number_menu(message: Message):
                     text=f"📱 হোয়াটসঅ্যাপ কলম্বিয়া (${wa_price})",
                     callback_data="buy_colombia_wa",
                 )
-            ]
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"📱 হোয়াটসঅ্যাপ USA Virtual (${wa_price})",
+                    callback_data="buy_usa_wa",
+                )
+            ],
         ]
     )
     await message.answer(
@@ -151,11 +157,12 @@ async def buy_number_menu(message: Message):
     )
 
 
+# --- কলম্বিয়া হোয়াটসঅ্যাপ (Max Price: 0.106) ---
 @router.callback_query(F.data == "buy_colombia_wa")
 async def process_buy_colombia(callback: CallbackQuery):
     user_id = callback.from_user.id
     user = await users_col.find_one({"user_id": user_id})
-    wa_price = float(await get_setting("wa_price", 0.095))
+    wa_price = float(await get_setting("wa_price", 0.106))
 
     if not user or user.get("balance", 0.0) < wa_price:
         await callback.answer(
@@ -163,7 +170,8 @@ async def process_buy_colombia(callback: CallbackQuery):
         )
         return
 
-    url = f"https://smsbower.page/stubs/handler_api.php?api_key={SMSBOWER_API_KEY}&action=getNumber&service=wa&country=33&maxPrice=0.095"
+    # Colombia maxPrice 0.106 locked
+    url = f"https://smsbower.page/stubs/handler_api.php?api_key={SMSBOWER_API_KEY}&action=getNumber&service=wa&country=33&maxPrice=0.106"
 
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
@@ -205,7 +213,77 @@ async def process_buy_colombia(callback: CallbackQuery):
         )
 
         asyncio.create_task(
-            poll_for_otp(user_id, act_id, phone, wa_price, callback.message)
+            poll_for_otp(
+                user_id, act_id, phone, wa_price, callback.message, country_name="কলম্বিয়া"
+            )
+        )
+
+    else:
+        await callback.answer(
+            "⚠️ বর্তমানে স্টকে নম্বর নেই! পরে চেষ্টা করুন।",
+            show_alert=True,
+        )
+
+
+# --- USA Virtual হোয়াটসঅ্যাপ (Max Price: 0.134) ---
+@router.callback_query(F.data == "buy_usa_wa")
+async def process_buy_usa(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    user = await users_col.find_one({"user_id": user_id})
+    wa_price = float(await get_setting("wa_price", 0.106))
+
+    if not user or user.get("balance", 0.0) < wa_price:
+        await callback.answer(
+            "❌ আপনার পর্যাপ্ত ব্যালেন্স নেই। ডিপোজিট করুন।", show_alert=True
+        )
+        return
+
+    # USA maxPrice 0.134 locked
+    url = f"https://smsbower.page/stubs/handler_api.php?api_key={SMSBOWER_API_KEY}&action=getNumber&service=wa&country=12&operator=cellular&maxPrice=0.134"
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            response = await resp.text()
+
+    if response.startswith("ACCESS_NUMBER"):
+        _, act_id, phone = response.split(":")
+
+        await active_numbers_col.insert_one(
+            {
+                "user_id": user_id,
+                "activation_id": act_id,
+                "phone": phone,
+                "price": wa_price,
+                "status": "WAITING_OTP",
+            }
+        )
+
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="❌ অর্ডার বাতিল করুন",
+                        callback_data=f"cancel_act_{act_id}",
+                    )
+                ]
+            ]
+        )
+
+        await callback.message.edit_text(
+            f"✅ **নম্বর সফলভাবে পাওয়া গেছে!**\n\n"
+            f"🇺🇸 **দেশ:** USA Virtual\n"
+            f"📞 **নম্বর:** `+{phone}`\n"
+            f"🆔 **আইডি:** `{act_id}`\n\n"
+            f"⏳ **ওটিপি (OTP)-এর জন্য অপেক্ষা করা হচ্ছে...**\n"
+            f"*(ওটিপি পাওয়ার পরই কেবল আপনার অ্যাকাউন্ট থেকে ${wa_price} কাটা হবে)*",
+            reply_markup=keyboard,
+            parse_mode="MARKDOWN",
+        )
+
+        asyncio.create_task(
+            poll_for_otp(
+                user_id, act_id, phone, wa_price, callback.message, country_name="USA Virtual"
+            )
         )
 
     else:
@@ -216,7 +294,12 @@ async def process_buy_colombia(callback: CallbackQuery):
 
 
 async def poll_for_otp(
-    user_id: int, act_id: str, phone: str, price: float, message: Message
+    user_id: int,
+    act_id: str,
+    phone: str,
+    price: float,
+    message: Message,
+    country_name: str = "কলম্বিয়া",
 ):
     url = f"https://smsbower.page/stubs/handler_api.php?api_key={SMSBOWER_API_KEY}&action=getStatus&id={act_id}"
 
@@ -255,7 +338,7 @@ async def poll_for_otp(
                     await bot.send_message(
                         OTP_GROUP_ID,
                         f"📢 **নতুন ওটিপি প্রাপ্তি!**\n\n"
-                        f"🇨🇴 **দেশ:** কলম্বিয়া (হোয়াটসঅ্যাপ)\n"
+                        f"🌐 **দেশ:** {country_name} (হোয়াটসঅ্যাপ)\n"
                         f"📞 **নম্বর:** `+{phone}`\n"
                         f"🔑 **ওটিপি:** `{otp_code}`",
                         parse_mode="MARKDOWN",
@@ -404,8 +487,8 @@ async def admin_panel(message: Message):
         return
 
     bot_status = await get_setting("bot_status", True)
-    status_text = "🟢 চালু" if bot_status else "🔴 বন্ধ"
-    wa_price = await get_setting("wa_price", 0.095)
+    status_text = "🟢 चालू" if bot_status else "🔴 বন্ধ"
+    wa_price = await get_setting("wa_price", 0.106)
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
