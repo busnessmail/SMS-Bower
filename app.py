@@ -66,28 +66,90 @@ def get_main_keyboard(user_id: int):
     )
 
 
-# --- FORCE JOIN CHECK FUNCTION ---
-async def check_force_join(user_id: int) -> tuple[bool, str]:
-    """ইউজার ফোর্স জয়েন চ্যানেলে যুক্ত আছে কিনা চেক করে"""
-    channel_id = await get_setting("force_join_channel", None)
-    if not channel_id:
-        return True, ""  # কোনো চ্যানেল সেট করা না থাকলে পাস করে দিবে
+# ==================== MULTI-FORCE JOIN CHECK ====================
+async def check_all_force_joins(user_id: int) -> tuple[bool, list]:
+    """
+    চেক করে ইউজার ৩টি সেট করা ফোর্স জয়েন চ্যানেলে যুক্ত আছে কিনা।
+    রিটার্ন করে: (সবগুলোতে জয়েন আছে কিনা, যেগুলো বাকী আছে সেগুলোর ইনভাইট লিঙ্ক তালিকা)
+    """
+    if user_id in [ADMIN_ID, SUB_ADMIN_ID]:
+        return True, []
 
-    try:
-        member = await bot.get_chat_member(chat_id=int(channel_id), user_id=user_id)
-        if member.status in ["member", "administrator", "creator"]:
-            return True, ""
-    except Exception as e:
-        logging.error(f"Force Join Check Error: {e}")
-        return True, ""
+    channels = await get_setting("force_join_channels", [])
+    if not channels:
+        return True, []
 
-    try:
-        chat_info = await bot.get_chat(int(channel_id))
-        invite_link = chat_info.invite_link or (f"https://t.me/{chat_info.username}" if chat_info.username else None)
-    except Exception:
-        invite_link = None
+    unjoined_list = []
 
-    return False, invite_link
+    for idx, ch_id in enumerate(channels, start=1):
+        if not ch_id:
+            continue
+        try:
+            member = await bot.get_chat_member(chat_id=int(ch_id), user_id=user_id)
+            if member.status not in ["member", "administrator", "creator"]:
+                chat_info = await bot.get_chat(int(ch_id))
+                invite_link = chat_info.invite_link or (f"https://t.me/{chat_info.username}" if chat_info.username else None)
+                unjoined_list.append((f"📢 চ্যানেল {idx}", invite_link))
+        except Exception as e:
+            logging.error(f"Force Join Check Error for {ch_id}: {e}")
+
+    if unjoined_list:
+        return False, unjoined_list
+    return True, []
+
+
+async def send_force_join_message(message_or_query, unjoined_list):
+    """ইউজার জয়েন না করলে ওয়ার্নিং মেসেজ পাঠায়"""
+    keyboard_buttons = []
+    for title, link in unjoined_list:
+        if link:
+            keyboard_buttons.append([InlineKeyboardButton(text=f"{title}-এ জয়েন করুন", url=link)])
+    
+    keyboard_buttons.append([InlineKeyboardButton(text="✅ ভেরিফাই করুন", callback_data="verify_join")])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+
+    msg_text = (
+        "⚠️ **আমাদের বট ব্যবহার করতে হলে নিচের চ্যানেল/গ্রুপগুলোতে জয়েন করতে হবে!**\n\n"
+        "সবগুলোতে জয়েন করার পর **'ভেরিফাই করুন'** বাটনে ক্লিক করুন।"
+    )
+
+    if isinstance(message_or_query, Message):
+        await message_or_query.answer(msg_text, reply_markup=keyboard, parse_mode="MARKDOWN")
+    elif isinstance(message_or_query, CallbackQuery):
+        await message_or_query.answer("❌ আগে চ্যানেলে জয়েন করুন!", show_alert=True)
+        try:
+            await message_or_query.message.answer(msg_text, reply_markup=keyboard, parse_mode="MARKDOWN")
+        except Exception:
+            pass
+
+
+# Middleware filter for normal messages
+@router.message.middleware()
+async def force_join_message_middleware(handler, event: Message, data):
+    user_id = event.from_user.id
+    # Command /start or admin checking allows custom flow
+    if event.text and event.text.startswith("/start"):
+        return await handler(event, data)
+
+    is_joined, unjoined = await check_all_force_joins(user_id)
+    if not is_joined:
+        await send_force_join_message(event, unjoined)
+        return
+    return await handler(event, data)
+
+
+# Middleware filter for callback queries
+@router.callback_query.middleware()
+async def force_join_callback_middleware(handler, event: CallbackQuery, data):
+    if event.data == "verify_join" or event.data.startswith("admin_") or event.data.startswith("dep_"):
+        return await handler(event, data)
+
+    user_id = event.from_user.id
+    is_joined, unjoined = await check_all_force_joins(user_id)
+    if not is_joined:
+        await send_force_join_message(event, unjoined)
+        return
+    return await handler(event, data)
 
 
 class DepositStates(StatesGroup):
@@ -100,7 +162,9 @@ class AdminStates(StatesGroup):
     waiting_for_broadcast = State()
     waiting_for_colombia_price = State()
     waiting_for_usa_price = State()
-    waiting_for_force_join = State()
+    waiting_for_ch1 = State()
+    waiting_for_ch2 = State()
+    waiting_for_ch3 = State()
 
 
 @router.message(Command("start"))
@@ -108,27 +172,14 @@ async def cmd_start(message: Message):
     user_id = message.from_user.id
     is_on = await get_setting("bot_status", True)
     if not is_on and user_id not in [ADMIN_ID, SUB_ADMIN_ID]:
-        await message.answer(
-            "⚠️ বট বর্তমানে মেইনটেন্যান্স কাজের জন্য বন্ধ রয়েছে।"
-        )
+        await message.answer("⚠️ বট বর্তমানে মেইনটেন্যান্স কাজের জন্য বন্ধ রয়েছে।")
         return
 
-    # Force Join Check for Normal Users
-    if user_id not in [ADMIN_ID, SUB_ADMIN_ID]:
-        is_joined, invite_link = await check_force_join(user_id)
-        if not is_joined:
-            keyboard_buttons = []
-            if invite_link:
-                keyboard_buttons.append([InlineKeyboardButton(text="📢 চ্যানেলে জয়েন করুন", url=invite_link)])
-            keyboard_buttons.append([InlineKeyboardButton(text="✅ ভেরিফাই করুন", callback_data="verify_join")])
-            
-            keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
-            await message.answer(
-                "⚠️ **আমাদের বট ব্যবহার করতে হলে প্রথমে নিচের চ্যানেলে/গ্রুপে জয়েন করতে হবে!**\n\nজয়েন করার পর নিচের **'ভেরিফাই করুন'** বাটনে ক্লিক করুন।",
-                reply_markup=keyboard,
-                parse_mode="MARKDOWN"
-            )
-            return
+    # Check force joins on /start
+    is_joined, unjoined = await check_all_force_joins(user_id)
+    if not is_joined:
+        await send_force_join_message(message, unjoined)
+        return
 
     user = await users_col.find_one({"user_id": user_id})
     if not user:
@@ -149,21 +200,31 @@ async def cmd_start(message: Message):
 @router.callback_query(F.data == "verify_join")
 async def verify_user_join(callback: CallbackQuery):
     user_id = callback.from_user.id
-    is_joined, _ = await check_force_join(user_id)
-    
+    is_joined, unjoined = await check_all_force_joins(user_id)
+
     if is_joined:
         try:
             await callback.message.delete()
         except Exception:
             pass
         await callback.answer("✅ ভেরিফিকেশন সফল হয়েছে!", show_alert=True)
-        
-        # স্টার্ট মেসেজ ট্রিগার করা
-        fake_message = callback.message
-        fake_message.from_user = callback.from_user
-        await cmd_start(fake_message)
+
+        user = await users_col.find_one({"user_id": user_id})
+        if not user:
+            await users_col.insert_one(
+                {
+                    "user_id": user_id,
+                    "balance": 0.0,
+                    "username": callback.from_user.username,
+                }
+            )
+
+        await callback.message.answer(
+            "🎉 ভেরিফিকেশন সফল! এখন বট ব্যবহার করতে পারেন:",
+            reply_markup=get_main_keyboard(user_id),
+        )
     else:
-        await callback.answer("❌ আপনি এখনো চ্যানেল/গ্রুপে জয়েন করেননি! আগে জয়েন করুন।", show_alert=True)
+        await callback.answer("❌ আপনি এখনো সকল চ্যানেল/গ্রুপে জয়েন করেননি!", show_alert=True)
 
 
 # ==================== BALANCE SYSTEM ====================
@@ -218,12 +279,10 @@ async def buy_number_menu(message: Message):
             ],
         ]
     )
-    await message.answer(
-        "সার্ভিস নির্বাচন করুন:", reply_markup=keyboard
-    )
+    await message.answer("সার্ভিস নির্বাচন করুন:", reply_markup=keyboard)
 
 
-# --- কলম্বিয়া হোয়াটসঅ্যাপ (API Max Price: 0.106) ---
+# --- কলম্বিয়া হোয়াটসঅ্যাপ ---
 @router.callback_query(F.data == "buy_colombia_wa")
 async def process_buy_colombia(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -282,7 +341,6 @@ async def process_buy_colombia(callback: CallbackQuery):
                 user_id, act_id, phone, price_to_charge, callback.message, country_name="কলম্বিয়া"
             )
         )
-
     else:
         await callback.answer(
             "⚠️ বর্তমানে স্টকে নম্বর নেই! পরে চেষ্টা করুন।",
@@ -290,7 +348,7 @@ async def process_buy_colombia(callback: CallbackQuery):
         )
 
 
-# --- USA Virtual হোয়াটসঅ্যাপ (API Max Price: 0.134) ---
+# --- USA Virtual হোয়াটসঅ্যাপ ---
 @router.callback_query(F.data == "buy_usa_wa")
 async def process_buy_usa(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -349,7 +407,6 @@ async def process_buy_usa(callback: CallbackQuery):
                 user_id, act_id, phone, price_to_charge, callback.message, country_name="USA Virtual"
             )
         )
-
     else:
         await callback.answer(
             "⚠️ বর্তমানে স্টকে নম্বর নেই! পরে চেষ্টা করুন।",
@@ -552,7 +609,7 @@ async def admin_panel(message: Message):
         return
 
     bot_status = await get_setting("bot_status", True)
-    status_text = "🟢 চালু" if bot_status else "🔴 বন্ধ"
+    status_text = "🟢 चालू" if bot_status else "🔴 বন্ধ"
     col_price = await get_setting("wa_colombia_price", 0.106)
     usa_price = await get_setting("wa_usa_price", 0.134)
 
@@ -565,7 +622,6 @@ async def admin_panel(message: Message):
         ]
     ]
 
-    # শুধুমাত্র মেইন অ্যাডমিন অতিরিক্ত সেটিংস দেখতে পাবে
     if user_id == ADMIN_ID:
         keyboard_buttons.extend([
             [
@@ -582,8 +638,8 @@ async def admin_panel(message: Message):
             ],
             [
                 InlineKeyboardButton(
-                    text="📢 ফোর্স জয়েন চ্যানেল সেটআপ",
-                    callback_data="admin_set_force_join",
+                    text="📢 ৩টি ফোর্স জয়েন সেটআপ করুন",
+                    callback_data="admin_manage_channels",
                 )
             ],
         ])
@@ -593,7 +649,6 @@ async def admin_panel(message: Message):
     ])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
-    
     panel_title = "⚙️ **মেইন অ্যাডমিন প্যানেল:**" if user_id == ADMIN_ID else "⚙️ **সাব-অ্যাডমিন প্যানেল:**"
     await message.answer(
         f"{panel_title}", reply_markup=keyboard, parse_mode="MARKDOWN"
@@ -609,15 +664,12 @@ async def admin_toggle_bot(callback: CallbackQuery):
     await callback.answer("বট স্ট্যাটাস আপডেট করা হয়েছে!")
 
 
-# --- কলম্বিয়া প্রাইস সেটিং (শুধুমাত্র মেইন অ্যাডমিন) ---
+# --- প্রাইস সেটিং ---
 @router.callback_query(F.data == "admin_set_colombia_price")
 async def admin_set_col_price(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
         return
-    await callback.message.answer(
-        "নতুন **কলম্বিয়া হোয়াটসঅ্যাপ** প্রাইস লিখুন (যেমন: 0.11 বা 0.15):",
-        parse_mode="MARKDOWN",
-    )
+    await callback.message.answer("নতুন **কলম্বিয়া হোয়াটসঅ্যাপ** প্রাইস লিখুন:")
     await state.set_state(AdminStates.waiting_for_colombia_price)
 
 
@@ -634,15 +686,11 @@ async def save_col_price(message: Message, state: FSMContext):
         await message.answer("❌ সঠিক সংখ্যা দিন:")
 
 
-# --- USA Virtual প্রাইস সেটিং (শুধুমাত্র মেইন অ্যাডমিন) ---
 @router.callback_query(F.data == "admin_set_usa_price")
 async def admin_set_usa_price(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
         return
-    await callback.message.answer(
-        "নতুন **USA Virtual হোয়াটসঅ্যাপ** প্রাইস লিখুন (যেমন: 0.14 বা 0.20):",
-        parse_mode="MARKDOWN",
-    )
+    await callback.message.answer("নতুন **USA Virtual হোয়াটসঅ্যাপ** প্রাইস লিখুন:")
     await state.set_state(AdminStates.waiting_for_usa_price)
 
 
@@ -659,52 +707,108 @@ async def save_usa_price(message: Message, state: FSMContext):
         await message.answer("❌ সঠিক সংখ্যা দিন:")
 
 
-# --- ফোর্স জয়েন সেটআপ (শুধুমাত্র মেইন অ্যাডমিন) ---
-@router.callback_query(F.data == "admin_set_force_join")
-async def admin_set_force_join_callback(callback: CallbackQuery, state: FSMContext):
+# --- MULTI-CHANNEL FORCE JOIN MANAGEMENT ---
+@router.callback_query(F.data == "admin_manage_channels")
+async def admin_manage_channels(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         return
-    
-    current = await get_setting("force_join_channel", "বিকল্প বন্ধ নেই")
+
+    channels = await get_setting("force_join_channels", [None, None, None])
+    ch1 = channels[0] if len(channels) > 0 and channels[0] else "সেট করা নেই"
+    ch2 = channels[1] if len(channels) > 1 and channels[1] else "সেট করা নেই"
+    ch3 = channels[2] if len(channels) > 2 and channels[2] else "সেট করা নেই"
+
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="❌ ফোর্স জয়েন বন্ধ করুন", callback_data="admin_remove_force_join")]
+            [InlineKeyboardButton(text=f"১ম চ্যানেল: {ch1}", callback_data="admin_set_ch_1")],
+            [InlineKeyboardButton(text=f"২য় চ্যানেল: {ch2}", callback_data="admin_set_ch_2")],
+            [InlineKeyboardButton(text=f"৩য় চ্যানেল: {ch3}", callback_data="admin_set_ch_3")],
+            [InlineKeyboardButton(text="🗑️ সমস্ত চ্যানেল রিমুভ করুন", callback_data="admin_clear_all_ch")],
         ]
     )
-    
+
     await callback.message.answer(
-        f"বর্তমান ফোর্স জয়েন চ্যানেল ID: `{current}`\n\n"
-        f"নতুন চ্যানেল বা গ্রুপের **Chat ID** (যেমন: `-100123456789`) দিন:\n"
-        f"*(অবশ্যই বটকে উক্ত চ্যানেলে Administrator বানাতে হবে)*",
+        "📢 **ফোর্স জয়েন চ্যানেল ম্যানেজমেন্ট:**\n\nনিচের বাটনগুলোতে ক্লিক করে আলাদাভাবে চ্যানেল Chat ID আইডি যোগ করুন:\n*(অবশ্যই বটকে উক্ত চ্যানেল/গ্রুপে অ্যাডমিন রাখতে হবে)*",
         reply_markup=keyboard,
-        parse_mode="MARKDOWN"
+        parse_mode="MARKDOWN",
     )
-    await state.set_state(AdminStates.waiting_for_force_join)
 
 
-@router.message(AdminStates.waiting_for_force_join)
-async def save_force_join_channel(message: Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID:
-        return
-    
-    text = message.text.strip()
-    try:
-        chat_id = int(text)
-        await set_setting("force_join_channel", chat_id)
-        await state.clear()
-        await message.answer(f"✅ ফোর্স জয়েন সফলভাবে সেট করা হয়েছে: `{chat_id}`", parse_mode="MARKDOWN")
-    except ValueError:
-        await message.answer("❌ সঠিক চ্যানেল ID দিন (যেমন: -100xxxxxx):")
-
-
-@router.callback_query(F.data == "admin_remove_force_join")
-async def remove_force_join(callback: CallbackQuery):
+@router.callback_query(F.data == "admin_set_ch_1")
+async def set_ch_1(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
         return
-    
-    await set_setting("force_join_channel", None)
-    await callback.message.edit_text("✅ ফোর্স জয়েন সিস্টেম সফলভাবে বন্ধ করা হয়েছে।")
-    await callback.answer()
+    await callback.message.answer("১ম চ্যানেলের **Chat ID** পাঠান (যেমন: `-100123456789`):")
+    await state.set_state(AdminStates.waiting_for_ch1)
+
+
+@router.message(AdminStates.waiting_for_ch1)
+async def save_ch_1(message: Message, state: FSMContext):
+    try:
+        cid = int(message.text.strip())
+        channels = await get_setting("force_join_channels", [None, None, None])
+        while len(channels) < 3:
+            channels.append(None)
+        channels[0] = cid
+        await set_setting("force_join_channels", channels)
+        await state.clear()
+        await message.answer(f"✅ ১ম চ্যানেল সেট হয়েছে: `{cid}`", parse_mode="MARKDOWN")
+    except ValueError:
+        await message.answer("❌ সঠিক Chat ID দিন (যেমন: -100xxxxxxxx):")
+
+
+@router.callback_query(F.data == "admin_set_ch_2")
+async def set_ch_2(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    await callback.message.answer("২য় চ্যানেলের **Chat ID** পাঠান (যেমন: `-100123456789`):")
+    await state.set_state(AdminStates.waiting_for_ch2)
+
+
+@router.message(AdminStates.waiting_for_ch2)
+async def save_ch_2(message: Message, state: FSMContext):
+    try:
+        cid = int(message.text.strip())
+        channels = await get_setting("force_join_channels", [None, None, None])
+        while len(channels) < 3:
+            channels.append(None)
+        channels[1] = cid
+        await set_setting("force_join_channels", channels)
+        await state.clear()
+        await message.answer(f"✅ ২য় চ্যানেল সেট হয়েছে: `{cid}`", parse_mode="MARKDOWN")
+    except ValueError:
+        await message.answer("❌ সঠিক Chat ID দিন (যেমন: -100xxxxxxxx):")
+
+
+@router.callback_query(F.data == "admin_set_ch_3")
+async def set_ch_3(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    await callback.message.answer("৩য় চ্যানেলের **Chat ID** পাঠান (যেমন: `-100123456789`):")
+    await state.set_state(AdminStates.waiting_for_ch3)
+
+
+@router.message(AdminStates.waiting_for_ch3)
+async def save_ch_3(message: Message, state: FSMContext):
+    try:
+        cid = int(message.text.strip())
+        channels = await get_setting("force_join_channels", [None, None, None])
+        while len(channels) < 3:
+            channels.append(None)
+        channels[2] = cid
+        await set_setting("force_join_channels", channels)
+        await state.clear()
+        await message.answer(f"✅ ৩য় চ্যানেল সেট হয়েছে: `{cid}`", parse_mode="MARKDOWN")
+    except ValueError:
+        await message.answer("❌ সঠিক Chat ID দিন (যেমন: -100xxxxxxxx):")
+
+
+@router.callback_query(F.data == "admin_clear_all_ch")
+async def clear_all_channels(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    await set_setting("force_join_channels", [])
+    await callback.message.edit_text("✅ সকল ফোর্স জয়েন চ্যানেল মুছে ফেলা হয়েছে।")
 
 
 @router.callback_query(F.data == "admin_broadcast")
@@ -735,7 +839,7 @@ async def execute_broadcast(message: Message, state: FSMContext):
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
-    print("Railway Bot Running with Sub-Admin & Force Join Support...")
+    print("Railway Bot Running with Multi-Force Join Support...")
     await dp.start_polling(bot)
 
 
