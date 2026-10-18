@@ -1,4 +1,4 @@
-import asyncio
+Import asyncio
 import logging
 import os
 import aiohttp
@@ -160,6 +160,7 @@ class DepositStates(StatesGroup):
 
 class AdminStates(StatesGroup):
     waiting_for_broadcast = State()
+    waiting_for_colombia_price = State()
     waiting_for_usa_price = State()
     waiting_for_ch1 = State()
     waiting_for_ch2 = State()
@@ -259,7 +260,7 @@ async def show_balance(message: Message):
 # ==================== BUY NUMBER & OTP HOLD ====================
 @router.message(F.text == "🛒 নম্বর কিনুন")
 async def buy_number_menu(message: Message):
-    col_price = 0.106  # স্থায়ীভাবে লক করা প্রাইস
+    col_price = float(await get_setting("wa_colombia_price", 0.106))
     usa_price = float(await get_setting("wa_usa_price", 0.134))
 
     keyboard = InlineKeyboardMarkup(
@@ -286,7 +287,7 @@ async def buy_number_menu(message: Message):
 async def process_buy_colombia(callback: CallbackQuery):
     user_id = callback.from_user.id
     user = await users_col.find_one({"user_id": user_id})
-    price_to_charge = 0.106  # স্থায়ীভাবে লক করা প্রাইস
+    price_to_charge = float(await get_setting("wa_colombia_price", 0.106))
 
     if not user or user.get("balance", 0.0) < price_to_charge:
         await callback.answer(
@@ -609,8 +610,8 @@ async def admin_panel(message: Message):
 
     bot_status = await get_setting("bot_status", True)
     status_text = "🟢 चालू" if bot_status else "🔴 বন্ধ"
-    col_price = 0.106
-    usa_price = float(await get_setting("wa_usa_price", 0.134))
+    col_price = await get_setting("wa_colombia_price", 0.106)
+    usa_price = await get_setting("wa_usa_price", 0.134)
 
     keyboard_buttons = [
         [
@@ -625,8 +626,8 @@ async def admin_panel(message: Message):
         keyboard_buttons.extend([
             [
                 InlineKeyboardButton(
-                    text=f"🇨🇴 কলম্বিয়া প্রাইস (${col_price}) [লকড]",
-                    callback_data="noop_col_price",
+                    text=f"🇨🇴 কলম্বিয়া প্রাইস (${col_price})",
+                    callback_data="admin_set_colombia_price",
                 )
             ],
             [
@@ -654,11 +655,6 @@ async def admin_panel(message: Message):
     )
 
 
-@router.callback_query(F.data == "noop_col_price")
-async def noop_col_price(callback: CallbackQuery):
-    await callback.answer("কলম্বিয়া প্রাইস স্থায়ীভাবে 0.106 এ লক করা আছে।", show_alert=True)
-
-
 @router.callback_query(F.data == "admin_toggle_bot")
 async def admin_toggle_bot(callback: CallbackQuery):
     if callback.from_user.id not in [ADMIN_ID, SUB_ADMIN_ID]:
@@ -668,7 +664,28 @@ async def admin_toggle_bot(callback: CallbackQuery):
     await callback.answer("বট স্ট্যাটাস আপডেট করা হয়েছে!")
 
 
-# --- USA প্রাইস সেটিং ---
+# --- প্রাইস সেটিং ---
+@router.callback_query(F.data == "admin_set_colombia_price")
+async def admin_set_col_price(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    await callback.message.answer("নতুন **কলম্বিয়া হোয়াটসঅ্যাপ** প্রাইস লিখুন:")
+    await state.set_state(AdminStates.waiting_for_colombia_price)
+
+
+@router.message(AdminStates.waiting_for_colombia_price)
+async def save_col_price(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+    try:
+        price = float(message.text)
+        await set_setting("wa_colombia_price", price)
+        await state.clear()
+        await message.answer(f"✅ কলম্বিয়ার প্রাইস আপডেট করা হয়েছে: ${price}")
+    except ValueError:
+        await message.answer("❌ সঠিক সংখ্যা দিন:")
+
+
 @router.callback_query(F.data == "admin_set_usa_price")
 async def admin_set_usa_price(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
