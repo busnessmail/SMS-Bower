@@ -260,7 +260,7 @@ async def show_balance(message: Message):
 # ==================== BUY NUMBER & OTP HOLD ====================
 @router.message(F.text == "🛒 নম্বর কিনুন")
 async def buy_number_menu(message: Message):
-    col_price = float(await get_setting("wa_colombia_price", 0.106))
+    col_price = float(await get_setting("wa_colombia_price", 0.107))
     usa_price = float(await get_setting("wa_usa_price", 0.134))
 
     keyboard = InlineKeyboardMarkup(
@@ -845,3 +845,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+Colombia ar max price locks 0.106 kore daw
