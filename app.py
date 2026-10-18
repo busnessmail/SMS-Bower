@@ -845,5 +845,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-Colombia ar max price locks 0.106 kore daw
