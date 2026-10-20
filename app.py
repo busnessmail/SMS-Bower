@@ -250,7 +250,7 @@ async def show_balance(message: Message):
     await message.answer(msg_text, parse_mode="MARKDOWN")
 
 
-# ==================== BUY NUMBER & OTP HOLD ====================
+# ==================== BUY NUMBER & QUEUE SYSTEM ====================
 @router.message(F.text == "🛒 Nombor Kinun")
 async def buy_number_menu(message: Message):
     user_id = message.from_user.id
@@ -271,13 +271,13 @@ async def buy_number_menu(message: Message):
             [
                 InlineKeyboardButton(
                     text=f"📱 WhatsApp Colombia (${col_price})",
-                    callback_data="buy_colombia_wa",
+                    callback_data="select_qty_colombia",
                 )
             ],
             [
                 InlineKeyboardButton(
                     text=f"📱 WhatsApp USA Virtual (${usa_price})",
-                    callback_data="buy_usa_wa",
+                    callback_data="select_qty_usa",
                 )
             ],
         ]
@@ -285,10 +285,27 @@ async def buy_number_menu(message: Message):
     await message.answer("Sothik Service Select Korun:", reply_markup=keyboard)
 
 
-# --- কলম্বিয়া হোয়াটসঅ্যাপ ---
-@router.callback_query(F.data == "buy_colombia_wa")
-async def process_buy_colombia(callback: CallbackQuery):
+@router.callback_query(F.data.startswith("select_qty_"))
+async def select_quantity_menu(callback: CallbackQuery):
+    service = callback.data.split("_")[2]  # colombia OR usa
+    
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="1-Ta Number", callback_data=f"buy_qty_1_{service}"),
+                InlineKeyboardButton(text="2-Ta Number", callback_data=f"buy_qty_2_{service}"),
+                InlineKeyboardButton(text="3-Ta Number", callback_data=f"buy_qty_3_{service}"),
+            ]
+        ]
+    )
+    await callback.message.edit_text("🔢 **Apni koita number nite can? (Sorboccho 3-ta):**", reply_markup=keyboard, parse_mode="MARKDOWN")
+
+
+@router.callback_query(F.data.startswith("buy_qty_"))
+async def process_batch_buy(callback: CallbackQuery):
     user_id = callback.from_user.id
+    _, _, qty_str, service = callback.data.split("_")
+    qty = int(qty_str)
 
     active_order = await active_numbers_col.find_one({"user_id": user_id, "status": "WAITING_OTP"})
     if active_order:
@@ -296,137 +313,91 @@ async def process_buy_colombia(callback: CallbackQuery):
         return
 
     user = await users_col.find_one({"user_id": user_id})
-    price_to_charge = float(await get_setting("wa_colombia_price", 0.132))
-
-    if not user or user.get("balance", 0.0) < price_to_charge:
-        await callback.answer(
-            "❌ Apnar porjapto balance nei. Deposit korun.", show_alert=True
-        )
-        return
-
-    url = f"https://smsbower.page/stubs/handler_api.php?api_key={SMSBOWER_API_KEY}&action=getNumber&service=wa&country=33&maxPrice=0.132"
-
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            response = await resp.text()
-
-    if response.startswith("ACCESS_NUMBER"):
-        _, act_id, phone = response.split(":")
-
-        await active_numbers_col.insert_one(
-            {
-                "user_id": user_id,
-                "activation_id": act_id,
-                "phone": phone,
-                "price": price_to_charge,
-                "status": "WAITING_OTP",
-            }
-        )
-
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="❌ Order Cancel Korun",
-                        callback_data=f"cancel_act_{act_id}",
-                    )
-                ]
-            ]
-        )
-
-        await callback.message.edit_text(
-            f"✅ **Number shofolbhabe paoya geche!**\n\n"
-            f"🇨🇴 **Country:** Colombia\n"
-            f"📞 **Number:** `+{phone}`\n"
-            f"🆔 **ID:** `{act_id}`\n\n"
-            f"⏳ **OTP-er jonno wait kora hocche...**\n"
-            f"*(OTP paoya ba order cancel korar ag porjonto notun number kinte parben na)*",
-            reply_markup=keyboard,
-            parse_mode="MARKDOWN",
-        )
-
-        asyncio.create_task(
-            poll_for_otp(
-                user_id, act_id, phone, price_to_charge, callback.message, country_name="Colombia"
-            )
-        )
+    
+    if service == "colombia":
+        price_per_num = float(await get_setting("wa_colombia_price", 0.11))
+        country_code = "33"
+        country_name = "Colombia"
+        max_p = 0.11
+        api_url = f"https://smsbower.page/stubs/handler_api.php?api_key={SMSBOWER_API_KEY}&action=getNumber&service=wa&country={country_code}&maxPrice={max_p}"
     else:
+        price_per_num = float(await get_setting("wa_usa_price", 0.134))
+        country_code = "12"
+        country_name = "USA Virtual"
+        max_p = 0.134
+        api_url = f"https://smsbower.page/stubs/handler_api.php?api_key={SMSBOWER_API_KEY}&action=getNumber&service=wa&country={country_code}&operator=cellular&maxPrice={max_p}"
+
+    total_cost = price_per_num * qty
+
+    if not user or user.get("balance", 0.0) < total_cost:
         await callback.answer(
-            "⚠️ Bortomane stock-e number nei! Pore abar chesta korun.",
-            show_alert=True,
-        )
-
-
-# --- USA Virtual হোয়াটসঅ্যাপ ---
-@router.callback_query(F.data == "buy_usa_wa")
-async def process_buy_usa(callback: CallbackQuery):
-    user_id = callback.from_user.id
-
-    active_order = await active_numbers_col.find_one({"user_id": user_id, "status": "WAITING_OTP"})
-    if active_order:
-        await callback.answer("❌ Apnar already ekta choloman order royeche!", show_alert=True)
-        return
-
-    user = await users_col.find_one({"user_id": user_id})
-    price_to_charge = float(await get_setting("wa_usa_price", 0.134))
-
-    if not user or user.get("balance", 0.0) < price_to_charge:
-        await callback.answer(
-            "❌ Apnar porjapto balance nei. Deposit korun.", show_alert=True
+            f"❌ Apnar porjapto balance nei. Minimum ${total_cost:.2f} lagbe. Deposit korun.", show_alert=True
         )
         return
 
-    url = f"https://smsbower.page/stubs/handler_api.php?api_key={SMSBOWER_API_KEY}&action=getNumber&service=wa&country=12&operator=cellular&maxPrice=0.134"
+    await callback.message.edit_text(
+        f"⏳ **Order Processing-e ache...**\n\n"
+        f"🌐 **Country:** {country_name}\n"
+        f"📦 **Quantity:** {qty}-ta\n\n"
+        f"Website-e number stock-e asha matro ek ek kore apnar kache chole ashbe. Anugroho kore opekkha korun..."
+    )
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            response = await resp.text()
+    asyncio.create_task(
+        fetch_and_queue_numbers(user_id, qty, api_url, price_per_num, country_name, callback.message)
+    )
 
-    if response.startswith("ACCESS_NUMBER"):
-        _, act_id, phone = response.split(":")
 
-        await active_numbers_col.insert_one(
-            {
-                "user_id": user_id,
-                "activation_id": act_id,
-                "phone": phone,
-                "price": price_to_charge,
-                "status": "WAITING_OTP",
-            }
-        )
+async def fetch_and_queue_numbers(user_id: int, target_qty: int, api_url: str, price: float, country_name: str, message: Message):
+    obtained_count = 0
 
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="❌ Order Cancel Korun",
-                        callback_data=f"cancel_act_{act_id}",
-                    )
-                ]
-            ]
-        )
+    while obtained_count < target_qty:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url) as resp:
+                response = await resp.text()
 
-        await callback.message.edit_text(
-            f"✅ **Number shofolbhabe paoya geche!**\n\n"
-            f"🇺🇸 **Country:** USA Virtual\n"
-            f"📞 **Number:** `+{phone}`\n"
-            f"🆔 **ID:** `{act_id}`\n\n"
-            f"⏳ **OTP-er jonno wait kora hocche...**\n"
-            f"*(OTP paoya ba order cancel korar ag porjonto notun number kinte parben na)*",
-            reply_markup=keyboard,
-            parse_mode="MARKDOWN",
-        )
+        if response.startswith("ACCESS_NUMBER"):
+            obtained_count += 1
+            _, act_id, phone = response.split(":")
 
-        asyncio.create_task(
-            poll_for_otp(
-                user_id, act_id, phone, price_to_charge, callback.message, country_name="USA Virtual"
+            await active_numbers_col.insert_one(
+                {
+                    "user_id": user_id,
+                    "activation_id": act_id,
+                    "phone": phone,
+                    "price": price,
+                    "status": "WAITING_OTP",
+                }
             )
-        )
-    else:
-        await callback.answer(
-            "⚠️ Bortomane stock-e number nei! Pore abar chesta korun.",
-            show_alert=True,
-        )
+
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="❌ Order Cancel Korun",
+                            callback_data=f"cancel_act_{act_id}",
+                        )
+                    ]
+                ]
+            )
+
+            msg = await bot.send_message(
+                user_id,
+                f"✅ **Number ({obtained_count}/{target_qty}) Paoya Geche!**\n\n"
+                f"🇨🇴 **Country:** {country_name}\n"
+                f"📞 **Number:** `+{phone}`\n"
+                f"🆔 **ID:** `{act_id}`\n\n"
+                f"⏳ **OTP-er jonno wait kora hocche...**\n"
+                f"*(OTP paoya ba order cancel korar ag porjonto notun number kinte parben na)*",
+                reply_markup=keyboard,
+                parse_mode="MARKDOWN",
+            )
+
+            # Wait for OTP for this number before processing next one if required
+            await poll_for_otp(user_id, act_id, phone, price, msg, country_name=country_name)
+            break # Lock system ensures 1 active number process at a time
+        else:
+            # Stock out or waiting queue - retry loop every 5 seconds
+            await asyncio.sleep(5)
 
 
 async def poll_for_otp(
@@ -465,7 +436,7 @@ async def poll_for_otp(
                 f"🎉 **OTP Recieve hoyeche!**\n\n"
                 f"📞 **Number:** `+{phone}`\n"
                 f"🔑 **OTP Code:** `{otp_code}`\n\n"
-                f"✅ Apnar account theke `${price}` kete neya hoyeche. Ekhon theke abar notun number kinte parben.",
+                f"✅ Apnar account theke `${price}` kete neya hoyeche.",
                 parse_mode="MARKDOWN",
             )
 
@@ -516,7 +487,7 @@ async def cancel_activation(callback: CallbackQuery):
 @router.message(F.text == "📥 Deposit")
 async def deposit_start(message: Message, state: FSMContext):
     await message.answer(
-        "💵 Apni koto dollar deposit korte can?\n*(Minimum deposit 0.৫০$)*"
+        "💵 Apni koto dollar deposit korte can?\n*(Minimum deposit 0.50$)*"
     )
     await state.set_state(DepositStates.waiting_for_amount)
 
@@ -628,7 +599,7 @@ async def admin_panel(message: Message):
 
     bot_status = await get_setting("bot_status", True)
     status_text = "🟢 On" if bot_status else "🔴 Off"
-    col_price = await get_setting("wa_colombia_price", 0.132)
+    col_price = await get_setting("wa_colombia_price", 0.11)
     usa_price = await get_setting("wa_usa_price", 0.134)
 
     keyboard_buttons = [
@@ -700,7 +671,7 @@ async def save_col_price(message: Message, state: FSMContext):
         await state.clear()
         await message.answer(f"✅ Colombia-r price update kora hoyeche: ${price}")
     except ValueError:
-        await message.answer("❌ Sothik shongkha দিন:")
+        await message.answer("❌ Sothik shongkha din:")
 
 
 @router.callback_query(F.data == "admin_set_usa_price")
@@ -744,7 +715,7 @@ async def admin_manage_channels(callback: CallbackQuery):
     )
 
     await callback.message.answer(
-        "📢 **Force Join Channel Management:**\n\nNicher button-gulo te click kore alada bhabe channel Chat ID add korun:\n*(Obosshoi bot-ke উক্ত channel/group-e admin rakhte hobe)*",
+        "📢 **Force Join Channel Management:**\n\nNicher button-gulo te click kore alada bhabe channel Chat ID add korun:\n*(Obosshoi bot-ke channel/group-e admin rakhte hobe)*",
         reply_markup=keyboard,
         parse_mode="MARKDOWN",
     )
@@ -855,7 +826,7 @@ async def execute_broadcast(message: Message, state: FSMContext):
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
-    print("Railway Bot Running with Multi-Force Join & Active Order Restriction Support...")
+    print("Railway Bot Running with Quantity Selection & Queue Support...")
     await dp.start_polling(bot)
 
 
