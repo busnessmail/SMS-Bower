@@ -263,7 +263,7 @@ async def buy_number_menu(message: Message):
         )
         return
 
-    col_price = float(await get_setting("wa_colombia_price", 0.132))
+    col_price = float(await get_setting("wa_colombia_price", 0.11))
     usa_price = float(await get_setting("wa_usa_price", 0.134))
 
     keyboard = InlineKeyboardMarkup(
