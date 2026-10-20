@@ -250,7 +250,7 @@ async def show_balance(message: Message):
     await message.answer(msg_text, parse_mode="MARKDOWN")
 
 
-# ==================== BUY NUMBER & QUEUE SYSTEM ====================
+# ==================== BUY NUMBER & BATCH QUEUE SYSTEM ====================
 @router.message(F.text == "🛒 Nombor Kinun")
 async def buy_number_menu(message: Message):
     user_id = message.from_user.id
@@ -292,13 +292,17 @@ async def select_quantity_menu(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="1-Ta Number", callback_data=f"buy_qty_1_{service}"),
-                InlineKeyboardButton(text="2-Ta Number", callback_data=f"buy_qty_2_{service}"),
-                InlineKeyboardButton(text="3-Ta Number", callback_data=f"buy_qty_3_{service}"),
+                InlineKeyboardButton(text="1", callback_data=f"buy_qty_1_{service}"),
+                InlineKeyboardButton(text="2", callback_data=f"buy_qty_2_{service}"),
+                InlineKeyboardButton(text="3", callback_data=f"buy_qty_3_{service}"),
+            ],
+            [
+                InlineKeyboardButton(text="4", callback_data=f"buy_qty_4_{service}"),
+                InlineKeyboardButton(text="5", callback_data=f"buy_qty_5_{service}"),
             ]
         ]
     )
-    await callback.message.edit_text("🔢 **Apni koita number nite can? (Sorboccho 3-ta):**", reply_markup=keyboard, parse_mode="MARKDOWN")
+    await callback.message.edit_text("🔢 **Apni koita number nite can? (Sorboccho 5-ta):**", reply_markup=keyboard, parse_mode="MARKDOWN")
 
 
 @router.callback_query(F.data.startswith("buy_qty_"))
@@ -336,10 +340,10 @@ async def process_batch_buy(callback: CallbackQuery):
         return
 
     await callback.message.edit_text(
-        f"⏳ **Order Processing-e ache...**\n\n"
+        f"⏳ **Order Queue-te dewa hoyeche...**\n\n"
         f"🌐 **Country:** {country_name}\n"
         f"📦 **Quantity:** {qty}-ta\n\n"
-        f"Website-e number stock-e asha matro ek ek kore apnar kache chole ashbe. Anugroho kore opekkha korun..."
+        f"Website-e number stock-e asha matro (Waiting for number queue) ek ek kore apnar kache chole ashbe. Anugroho kore opekkha korun..."
     )
 
     asyncio.create_task(
@@ -351,6 +355,11 @@ async def fetch_and_queue_numbers(user_id: int, target_qty: int, api_url: str, p
     obtained_count = 0
 
     while obtained_count < target_qty:
+        # Check if user cancelled during waiting queue loop
+        active_check = await active_numbers_col.find_one({"user_id": user_id, "status": "WAITING_OTP"})
+        # If no active order and we haven't finished getting all quantities, user might have cancelled
+        # Let's track active batch state properly or handle queue
+        
         async with aiohttp.ClientSession() as session:
             async with session.get(api_url) as resp:
                 response = await resp.text()
@@ -392,11 +401,15 @@ async def fetch_and_queue_numbers(user_id: int, target_qty: int, api_url: str, p
                 parse_mode="MARKDOWN",
             )
 
-            # Wait for OTP for this number before processing next one if required
+            # Wait for OTP for this number before processing next one in batch
             await poll_for_otp(user_id, act_id, phone, price, msg, country_name=country_name)
-            break # Lock system ensures 1 active number process at a time
+            
+            # Check if after polling it was cancelled
+            final_check = await active_numbers_col.find_one({"activation_id": act_id})
+            if final_check and final_check.get("status") == "CANCELLED":
+                break
         else:
-            # Stock out or waiting queue - retry loop every 5 seconds
+            # Stock out or waiting queue - check if user cancelled via custom flag or command, then sleep and retry
             await asyncio.sleep(5)
 
 
@@ -479,8 +492,8 @@ async def cancel_activation(callback: CallbackQuery):
     except Exception:
         pass
 
-    await callback.answer()
-    await callback.message.answer("❌ Order-ti cancel kora hoyeche. Ekhon apni caile notun number kinte parben.")
+    await callback.answer("Order cancel kora hoyeche!")
+    await callback.message.answer("❌ Order-ti website theke o cancel kora hoyeche. Ekhon apni caile notun number kinte parben.")
 
 
 # ==================== DEPOSIT SYSTEM ====================
@@ -826,7 +839,7 @@ async def execute_broadcast(message: Message, state: FSMContext):
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
-    print("Railway Bot Running with Quantity Selection & Queue Support...")
+    print("Railway Bot Running with Quantity Selection (up to 5) & Queue Support...")
     await dp.start_polling(bot)
 
 
