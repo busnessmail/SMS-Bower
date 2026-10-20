@@ -71,7 +71,7 @@ async def set_setting(key, value):
 
 
 def get_main_keyboard(user_id: int):
-    # Main reply keyboard clean normal emoji
+    # Reply Keyboard-এ শুধু সাধারণ ইমোজি ব্যবহার করা হয়েছে (বট সচল রাখার জন্য জরুরি)
     buttons = [
         [
             KeyboardButton(text="🛒 নম্বর কিনুন"),
@@ -304,7 +304,6 @@ async def process_buy_colombia(callback: CallbackQuery):
     user_id = callback.from_user.id
 
     if await has_active_order(user_id):
-        # Alert box e direct plain emoji use kora hoyeche
         await callback.answer(
             "⚠️ আপনার ইতিমধ্যে একটি নম্বর কেনা আছে! OTP পাওয়ার পর বা অর্ডারটি বাতিল না করা পর্যন্ত নতুন নম্বর কিনতে পারবেন না।",
             show_alert=True
@@ -367,7 +366,6 @@ async def process_buy_colombia(callback: CallbackQuery):
             )
         )
     else:
-        # Alert box-e plain emoji use kora hoyeche jate error na ase
         await callback.answer(
             "⚠️ বর্তমানে স্টকে নম্বর নেই! পরে চেষ্টা করুন।",
             show_alert=True,
@@ -839,7 +837,7 @@ async def save_ch_3(message: Message, state: FSMContext):
         await state.clear()
         await message.answer(f"{EM_CHECK} ৩য় চ্যানেল সেট হয়েছে: <code>{cid}</code>", parse_mode="HTML")
     except ValueError:
-        await message.answer(f"{EM_CROSS} সঠিক Chat ID দিন (যেমন: -100xxxxxxxx):", parse_mode="HTML")
+        await message.answer(f"{EM_CROSS} সঠিক Chat ID দিন (যেমন: -100xxxxxxxx):", parse_model="HTML")
 
 
 @router.callback_query(F.data == "admin_clear_all_ch")
@@ -878,7 +876,7 @@ async def execute_broadcast(message: Message, state: FSMContext):
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
-    print("Railway Bot Running with Proper Custom Emojis in Reply Messages...")
+    print("Railway Bot Running Perfectly...")
     await dp.start_polling(bot)
 
 
