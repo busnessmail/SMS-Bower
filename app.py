@@ -37,6 +37,7 @@ db = client["sms_bot_db"]
 users_col = db["users"]
 settings_col = db["settings"]
 active_numbers_col = db["active_numbers"]
+active_queues_col = db["active_queues"]
 
 
 async def get_setting(key, default):
@@ -250,16 +251,18 @@ async def show_balance(message: Message):
     await message.answer(msg_text, parse_mode="MARKDOWN")
 
 
-# ==================== BUY NUMBER & BATCH QUEUE SYSTEM ====================
+# ==================== BUY NUMBER & QUEUE SYSTEM ====================
 @router.message(F.text == "🛒 Nombor Kinun")
 async def buy_number_menu(message: Message):
     user_id = message.from_user.id
 
     active_order = await active_numbers_col.find_one({"user_id": user_id, "status": "WAITING_OTP"})
-    if active_order:
+    active_queue = await active_queues_col.find_one({"user_id": user_id, "status": "RUNNING"})
+
+    if active_order or active_queue:
         await message.answer(
-            "⚠️ **Apnar already ekta number kena royeche ebong OTP-er jonno wait korche!**\n\n"
-            "Ager number-tar OTP na asha porjonto ba order cancel na kora porjonto apni notun kono number kinte parben na."
+            "⚠️ **Apnar ekta choloman order ba waiting queue cholche!**\n\n"
+            "Sheti shesh ba cancel na kora porjonto notun order dite parben na."
         )
         return
 
@@ -312,8 +315,9 @@ async def process_batch_buy(callback: CallbackQuery):
     qty = int(qty_str)
 
     active_order = await active_numbers_col.find_one({"user_id": user_id, "status": "WAITING_OTP"})
-    if active_order:
-        await callback.answer("❌ Apnar already ekta choloman order royeche!", show_alert=True)
+    active_queue = await active_queues_col.find_one({"user_id": user_id, "status": "RUNNING"})
+    if active_order or active_queue:
+        await callback.answer("❌ Apnar already ekta choloman order/queue royeche!", show_alert=True)
         return
 
     user = await users_col.find_one({"user_id": user_id})
@@ -339,27 +343,47 @@ async def process_batch_buy(callback: CallbackQuery):
         )
         return
 
+    queue_id = f"q_{user_id}_{qty}"
+    await active_queues_col.insert_one({
+        "queue_id": queue_id,
+        "user_id": user_id,
+        "status": "RUNNING"
+    })
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="❌ Cancel Queue Order",
+                    callback_data=f"cancel_queue_{queue_id}",
+                )
+            ]
+        ]
+    )
+
     await callback.message.edit_text(
         f"⏳ **Order Queue-te dewa hoyeche...**\n\n"
         f"🌐 **Country:** {country_name}\n"
         f"📦 **Quantity:** {qty}-ta\n\n"
-        f"Website-e number stock-e asha matro (Waiting for number queue) ek ek kore apnar kache chole ashbe. Anugroho kore opekkha korun..."
+        f"Website-e number stock-e asha matro (Waiting for number queue) ek ek kore apnar kache chole ashbe. Waiting cancel korte nicher button-e click korun.",
+        reply_markup=keyboard,
+        parse_mode="MARKDOWN"
     )
 
     asyncio.create_task(
-        fetch_and_queue_numbers(user_id, qty, api_url, price_per_num, country_name, callback.message)
+        fetch_and_queue_numbers(user_id, queue_id, qty, api_url, price_per_num, country_name, callback.message)
     )
 
 
-async def fetch_and_queue_numbers(user_id: int, target_qty: int, api_url: str, price: float, country_name: str, message: Message):
+async def fetch_and_queue_numbers(user_id: int, queue_id: str, target_qty: int, api_url: str, price: float, country_name: str, message: Message):
     obtained_count = 0
 
     while obtained_count < target_qty:
-        # Check if user cancelled during waiting queue loop
-        active_check = await active_numbers_col.find_one({"user_id": user_id, "status": "WAITING_OTP"})
-        # If no active order and we haven't finished getting all quantities, user might have cancelled
-        # Let's track active batch state properly or handle queue
-        
+        # Check if queue has been cancelled by user
+        q_record = await active_queues_col.find_one({"queue_id": queue_id})
+        if not q_record or q_record.get("status") == "CANCELLED":
+            return
+
         async with aiohttp.ClientSession() as session:
             async with session.get(api_url) as resp:
                 response = await resp.text()
@@ -382,7 +406,7 @@ async def fetch_and_queue_numbers(user_id: int, target_qty: int, api_url: str, p
                 inline_keyboard=[
                     [
                         InlineKeyboardButton(
-                            text="❌ Order Cancel Korun",
+                            text="❌ Cancel Order",
                             callback_data=f"cancel_act_{act_id}",
                         )
                     ]
@@ -395,22 +419,36 @@ async def fetch_and_queue_numbers(user_id: int, target_qty: int, api_url: str, p
                 f"🇨🇴 **Country:** {country_name}\n"
                 f"📞 **Number:** `+{phone}`\n"
                 f"🆔 **ID:** `{act_id}`\n\n"
-                f"⏳ **OTP-er jonno wait kora hocche...**\n"
-                f"*(OTP paoya ba order cancel korar ag porjonto notun number kinte parben na)*",
+                f"⏳ **OTP-er jonno wait kora hocche...**",
                 reply_markup=keyboard,
                 parse_mode="MARKDOWN",
             )
 
-            # Wait for OTP for this number before processing next one in batch
             await poll_for_otp(user_id, act_id, phone, price, msg, country_name=country_name)
             
-            # Check if after polling it was cancelled
+            # Check after OTP polling if cancelled
             final_check = await active_numbers_col.find_one({"activation_id": act_id})
             if final_check and final_check.get("status") == "CANCELLED":
+                await active_queues_col.update_one({"queue_id": queue_id}, {"$set": {"status": "CANCELLED"}})
                 break
         else:
-            # Stock out or waiting queue - check if user cancelled via custom flag or command, then sleep and retry
             await asyncio.sleep(5)
+
+    await active_queues_col.update_one({"queue_id": queue_id}, {"$set": {"status": "FINISHED"}})
+
+
+@router.callback_query(F.data.startswith("cancel_queue_"))
+async def cancel_queue_order(callback: CallbackQuery):
+    queue_id = callback.data.replace("cancel_queue_", "")
+    await active_queues_col.update_one({"queue_id": queue_id}, {"$set": {"status": "CANCELLED"}})
+    
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    await callback.answer("Waiting queue cancel kora hoyeche!")
+    await callback.message.answer("❌ Order-ti waiting queue theke cancel kora hoyeche.")
 
 
 async def poll_for_otp(
@@ -478,6 +516,7 @@ async def poll_for_otp(
 async def cancel_activation(callback: CallbackQuery):
     act_id = callback.data.split("_")[2]
 
+    # Cancel order on Website via SMSBOWER API
     url = f"https://smsbower.page/stubs/handler_api.php?api_key={SMSBOWER_API_KEY}&action=setStatus&status=8&id={act_id}"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
@@ -493,7 +532,7 @@ async def cancel_activation(callback: CallbackQuery):
         pass
 
     await callback.answer("Order cancel kora hoyeche!")
-    await callback.message.answer("❌ Order-ti website theke o cancel kora hoyeche. Ekhon apni caile notun number kinte parben.")
+    await callback.message.answer("❌ Order-ti website-er waiting list theke cancel kora hoyeche.")
 
 
 # ==================== DEPOSIT SYSTEM ====================
@@ -839,7 +878,7 @@ async def execute_broadcast(message: Message, state: FSMContext):
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
-    print("Railway Bot Running with Quantity Selection (up to 5) & Queue Support...")
+    print("Railway Bot Running with Dynamic Waiting Queue & Immediate Cancel Support...")
     await dp.start_polling(bot)
 
 
