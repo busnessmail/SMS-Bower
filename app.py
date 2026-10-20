@@ -39,11 +39,9 @@ settings_col = db["settings"]
 active_numbers_col = db["active_numbers"]
 
 # ==================== TELEGRAM PREMIUM EMOJI IDs ====================
-# আপনার দেওয়া স্ক্রিনশটের আইডি অনুযায়ী ইমোজি ট্যাগ ফরম্যাট
 def E(emoji_char, emoji_id):
     return f'<tg-emoji id="{emoji_id}">{emoji_char}</tg-emoji>'
 
-# ইমোজি কনস্ট্যান্ট
 EM_CART = E("🛒", "5231159755803761138")
 EM_MONEY = E("💰", "5197434882321567830")
 EM_DEPOSIT = E("📥", "5206607081334906820")
@@ -73,22 +71,22 @@ async def set_setting(key, value):
 
 
 def get_main_keyboard(user_id: int):
+    # Main reply keyboard clean normal emoji
     buttons = [
         [
-            KeyboardButton(text=f"🛒 নম্বর কিনুন"),
-            KeyboardButton(text=f"💰 ব্যালেন্স"),
+            KeyboardButton(text="🛒 নম্বর কিনুন"),
+            KeyboardButton(text="💰 ব্যালেন্স"),
         ],
-        [KeyboardButton(text=f"📥 ডিপোজিট")],
+        [KeyboardButton(text="📥 ডিপোজিট")],
     ]
     if user_id in [ADMIN_ID, SUB_ADMIN_ID]:
-        buttons.append([KeyboardButton(text=f"⚙️ অ্যাডমিন প্যানেল")])
+        buttons.append([KeyboardButton(text="⚙️ অ্যাডমিন প্যানেল")])
 
     return ReplyKeyboardMarkup(
         keyboard=buttons, resize_keyboard=True, persistent=True
     )
 
 
-# ==================== MULTI-FORCE JOIN CHECK ====================
 async def check_all_force_joins(user_id: int) -> tuple[bool, list]:
     if user_id in [ADMIN_ID, SUB_ADMIN_ID]:
         return True, []
@@ -122,18 +120,18 @@ async def send_force_join_message(message_or_query, unjoined_list):
         if link:
             keyboard_buttons.append([InlineKeyboardButton(text=f"{title}-এ জয়েন করুন", url=link)])
     
-    keyboard_buttons.append([InlineKeyboardButton(text=f"✅ ভেরিফাই করুন", callback_data="verify_join")])
+    keyboard_buttons.append([InlineKeyboardButton(text="✅ ভেরিফাই করুন", callback_data="verify_join")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
 
     msg_text = (
-        f"{EM_WARN} **আমাদের বট ব্যবহার করতে হলে নিচের চ্যানেল/গ্রুপগুলোতে জয়েন করতে হবে!**\n\n"
-        f"সবগুলোতে জয়েন করার পর **'ভেরিফাই করুন'** বাটনে ক্লিক করুন।"
+        f"{EM_WARN} <b>আমাদের বট ব্যবহার করতে হলে নিচের চ্যানেল/গ্রুপগুলোতে জয়েন করতে হবে!</b>\n\n"
+        f"সবগুলোতে জয়েন করার পর <b>'ভেরিফাই করুন'</b> বাটনে ক্লিক করুন।"
     )
 
     if isinstance(message_or_query, Message):
         await message_or_query.answer(msg_text, reply_markup=keyboard, parse_mode="HTML")
     elif isinstance(message_or_query, CallbackQuery):
-        await message_or_query.answer(f"{EM_CROSS} আগে চ্যানেলে জয়েন করুন!", show_alert=True)
+        await message_or_query.answer("❌ আগে চ্যানেলে জয়েন করুন!", show_alert=True)
         try:
             await message_or_query.message.answer(msg_text, reply_markup=keyboard, parse_mode="HTML")
         except Exception:
@@ -186,7 +184,7 @@ async def cmd_start(message: Message):
     user_id = message.from_user.id
     is_on = await get_setting("bot_status", True)
     if not is_on and user_id not in [ADMIN_ID, SUB_ADMIN_ID]:
-        await message.answer(f"{EM_WARN} বট বর্তমানে মেইনটেন্যান্স কাজের জন্য বন্ধ রয়েছে।")
+        await message.answer("⚠️ বট বর্তমানে মেইনটেন্যান্স কাজের জন্য বন্ধ রয়েছে।")
         return
 
     is_joined, unjoined = await check_all_force_joins(user_id)
@@ -205,7 +203,7 @@ async def cmd_start(message: Message):
         )
 
     await message.answer(
-        f"স্বাগতম! আমাদের বট থেকে খুব সহজে ভার্চুয়াল নম্বর কিনতে পারেন:",
+        "স্বাগতম! আমাদের বট থেকে খুব সহজে ভার্চুয়াল নম্বর কিনতে পারেন:",
         reply_markup=get_main_keyboard(user_id),
     )
 
@@ -220,7 +218,7 @@ async def verify_user_join(callback: CallbackQuery):
             await callback.message.delete()
         except Exception:
             pass
-        await callback.answer(f"✅ ভেরিফিকেশন সফল হয়েছে!", show_alert=True)
+        await callback.answer("✅ ভেরিফিকেশন সফল হয়েছে!", show_alert=True)
 
         user = await users_col.find_one({"user_id": user_id})
         if not user:
@@ -233,11 +231,11 @@ async def verify_user_join(callback: CallbackQuery):
             )
 
         await callback.message.answer(
-            f"🎉 ভেরিফিকেশন সফল! এখন বট ব্যবহার করতে পারেন:",
+            "🎉 ভেরিফিকেশন সফল! এখন বট ব্যবহার করতে পারেন:",
             reply_markup=get_main_keyboard(user_id),
         )
     else:
-        await callback.answer(f"{EM_CROSS} আপনি এখনো সকল চ্যানেল/গ্রুপে জয়েন করেননি!", show_alert=True)
+        await callback.answer("❌ আপনি এখনো সকল চ্যানেল/গ্রুপে জয়েন করেননি!", show_alert=True)
 
 
 # ==================== BALANCE SYSTEM ====================
@@ -260,12 +258,12 @@ async def show_balance(message: Message):
         )
 
         msg_text = (
-            f"📊 **অ্যাডমিন ব্যালেন্স ড্যাশবোর্ড:**\n\n"
-            f"🌐 **ওয়েবসাইট ব্যালেন্স:** `{web_bal}` {EM_DOLLAR}\n"
-            f"🤖 **বট ইন্টারনাল ব্যালেন্স:** `{user_bal:.2f}` {EM_DOLLAR}"
+            f"📊 <b>অ্যাডমিন ব্যালেন্স ড্যাশবোর্ড:</b>\n\n"
+            f"🌐 <b>ওয়েবসাইট ব্যালেন্স:</b> <code>{web_bal}</code> {EM_DOLLAR}\n"
+            f"🤖 <b>বট ইন্টারনাল ব্যালেন্স:</b> <code>{user_bal:.2f}</code> {EM_DOLLAR}"
         )
     else:
-        msg_text = f"{EM_MONEY} **আপনার বর্তমান ব্যালেন্স:** `{user_bal:.2f}` {EM_DOLLAR}"
+        msg_text = f"{EM_MONEY} <b>আপনার বর্তমান ব্যালেন্স:</b> <code>{user_bal:.2f}</code> {EM_DOLLAR}"
 
     await message.answer(msg_text, parse_mode="HTML")
 
@@ -295,7 +293,6 @@ async def buy_number_menu(message: Message):
     await message.answer("সার্ভিস নির্বাচন করুন:", reply_markup=keyboard)
 
 
-# --- চেক ফাংশন: ইউজার অলরেডি কোনো একটিভ অর্ডারে আছে কিনা ---
 async def has_active_order(user_id: int) -> bool:
     active = await active_numbers_col.find_one({"user_id": user_id, "status": "WAITING_OTP"})
     return active is not None
@@ -306,10 +303,10 @@ async def has_active_order(user_id: int) -> bool:
 async def process_buy_colombia(callback: CallbackQuery):
     user_id = callback.from_user.id
 
-    # চেক করুন ইউজারের অলরেডি কোনো রানিং অর্ডার আছে কিনা
     if await has_active_order(user_id):
+        # Alert box e direct plain emoji use kora hoyeche
         await callback.answer(
-            "❌ আপনার ইতিমধ্যে একটি নম্বর কেনা আছে! OTP পাওয়ার পর বা অর্ডারটি বাতিল না করা পর্যন্ত নতুন নম্বর কিনতে পারবেন না।",
+            "⚠️ আপনার ইতিমধ্যে একটি নম্বর কেনা আছে! OTP পাওয়ার পর বা অর্ডারটি বাতিল না করা পর্যন্ত নতুন নম্বর কিনতে পারবেন না।",
             show_alert=True
         )
         return
@@ -319,7 +316,7 @@ async def process_buy_colombia(callback: CallbackQuery):
 
     if not user or user.get("balance", 0.0) < price_to_charge:
         await callback.answer(
-            f"{EM_CROSS} আপনার পর্যাপ্ত ব্যালেন্স নেই। ডিপোজিট করুন।", show_alert=True
+            "❌ আপনার পর্যাপ্ত ব্যালেন্স নেই। ডিপোজিট করুন।", show_alert=True
         )
         return
 
@@ -346,7 +343,7 @@ async def process_buy_colombia(callback: CallbackQuery):
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text=f"❌ অর্ডার বাতিল করুন",
+                        text="❌ অর্ডার বাতিল করুন",
                         callback_data=f"cancel_act_{act_id}",
                     )
                 ]
@@ -354,11 +351,11 @@ async def process_buy_colombia(callback: CallbackQuery):
         )
 
         await callback.message.edit_text(
-            f"{EM_CHECK} **নম্বর সফলভাবে পাওয়া গেছে!**\n\n"
-            f"{EM_COLOMBIA} **দেশ:** কলম্বিয়া\n"
-            f"{EM_PHONE} **নম্বর:** `+{phone}`\n"
-            f"{EM_ID} **আইডি:** `{act_id}`\n\n"
-            f"{EM_CLOCK} **ওটিপি (OTP)-এর জন্য অপেক্ষা করা হচ্ছে...**\n"
+            f"{EM_CHECK} <b>নম্বর সফলভাবে পাওয়া গেছে!</b>\n\n"
+            f"{EM_COLOMBIA} <b>দেশ:</b> কলম্বিয়া\n"
+            f"{EM_PHONE} <b>নম্বর:</b> <code>+{phone}</code>\n"
+            f"{EM_ID} <b>আইডি:</b> <code>{act_id}</code>\n\n"
+            f"{EM_CLOCK} <b>ওটিপি (OTP)-এর জন্য অপেক্ষা করা হচ্ছে...</b>\n"
             f"*(ওটিপি পাওয়ার পরই কেবল আপনার অ্যাকাউন্ট থেকে ${price_to_charge} {EM_DOLLAR} কাটা হবে)*",
             reply_markup=keyboard,
             parse_mode="HTML",
@@ -370,8 +367,9 @@ async def process_buy_colombia(callback: CallbackQuery):
             )
         )
     else:
+        # Alert box-e plain emoji use kora hoyeche jate error na ase
         await callback.answer(
-            f"{EM_WARN} বর্তমানে স্টকে নম্বর নেই! পরে চেষ্টা করুন।",
+            "⚠️ বর্তমানে স্টকে নম্বর নেই! পরে চেষ্টা করুন।",
             show_alert=True,
         )
 
@@ -383,7 +381,7 @@ async def process_buy_usa(callback: CallbackQuery):
 
     if await has_active_order(user_id):
         await callback.answer(
-            "❌ আপনার ইতিমধ্যে একটি নম্বর কেনা আছে! OTP পাওয়ার পর বা অর্ডারটি বাতিল না করা পর্যন্ত নতুন নম্বর কিনতে পারবেন না।",
+            "⚠️ আপনার ইতিমধ্যে একটি নম্বর কেনা আছে! OTP পাওয়ার পর বা অর্ডারটি বাতিল না করা পর্যন্ত নতুন নম্বর কিনতে পারবেন না।",
             show_alert=True
         )
         return
@@ -393,7 +391,7 @@ async def process_buy_usa(callback: CallbackQuery):
 
     if not user or user.get("balance", 0.0) < price_to_charge:
         await callback.answer(
-            f"{EM_CROSS} আপনার পর্যাপ্ত ব্যালেন্স নেই। ডিপোজিট করুন।", show_alert=True
+            "❌ আপনার পর্যাপ্ত ব্যালেন্স নেই। ডিপোজিট করুন।", show_alert=True
         )
         return
 
@@ -420,7 +418,7 @@ async def process_buy_usa(callback: CallbackQuery):
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text=f"❌ অর্ডার বাতিল করুন",
+                        text="❌ অর্ডার বাতিল করুন",
                         callback_data=f"cancel_act_{act_id}",
                     )
                 ]
@@ -428,11 +426,11 @@ async def process_buy_usa(callback: CallbackQuery):
         )
 
         await callback.message.edit_text(
-            f"{EM_CHECK} **নম্বর সফলভাবে পাওয়া গেছে!**\n\n"
-            f"{EM_USA} **দেশ:** USA Virtual\n"
-            f"{EM_PHONE} **নম্বর:** `+{phone}`\n"
-            f"{EM_ID} **আইডি:** `{act_id}`\n\n"
-            f"{EM_CLOCK} **ওটিপি (OTP)-এর জন্য অপেক্ষা করা হচ্ছে...**\n"
+            f"{EM_CHECK} <b>নম্বর সফলভাবে পাওয়া গেছে!</b>\n\n"
+            f"{EM_USA} <b>দেশ:</b> USA Virtual\n"
+            f"{EM_PHONE} <b>নম্বর:</b> <code>+{phone}</code>\n"
+            f"{EM_ID} <b>আইডি:</b> <code>{act_id}</code>\n\n"
+            f"{EM_CLOCK} <b>ওটিপি (OTP)-এর জন্য অপেক্ষা করা হচ্ছে...</b>\n"
             f"*(ওটিপি পাওয়ার পরই কেবল আপনার অ্যাকাউন্ট থেকে ${price_to_charge} {EM_DOLLAR} কাটা হবে)*",
             reply_markup=keyboard,
             parse_mode="HTML",
@@ -445,7 +443,7 @@ async def process_buy_usa(callback: CallbackQuery):
         )
     else:
         await callback.answer(
-            f"{EM_WARN} বর্তমানে স্টকে নম্বর নেই! পরে চেষ্টা করুন।",
+            "⚠️ বর্তমানে স্টকে নম্বর নেই! পরে চেষ্টা করুন।",
             show_alert=True,
         )
 
@@ -483,10 +481,10 @@ async def poll_for_otp(
             )
 
             await message.edit_text(
-                f"{EM_GIFT} **ওটিপি (OTP) রিসিভ হয়েছে!**\n\n"
-                f"{EM_PHONE} **নম্বর:** `+{phone}`\n"
-                f"{EM_KEY} **ওটিপি কোড:** `{otp_code}`\n\n"
-                f"{EM_CHECK} আপনার অ্যাকাউন্ট থেকে `${price}` {EM_DOLLAR} কেটে নেওয়া হয়েছে।",
+                f"{EM_GIFT} <b>ওটিপি (OTP) রিসিভ হয়েছে!</b>\n\n"
+                f"{EM_PHONE} <b>নম্বর:</b> <code>+{phone}</code>\n"
+                f"{EM_KEY} <b>ওটিপি কোড:</b> <code>{otp_code}</code>\n\n"
+                f"{EM_CHECK} আপনার অ্যাকাউন্ট থেকে <code>${price}</code> {EM_DOLLAR} কেটে নেওয়া হয়েছে।",
                 parse_mode="HTML",
             )
 
@@ -494,10 +492,10 @@ async def poll_for_otp(
                 try:
                     await bot.send_message(
                         OTP_GROUP_ID,
-                        f"📢 **নতুন ওটিপি প্রাপ্তি!**\n\n"
-                        f"🌐 **দেশ:** {country_name} (হোয়াটসঅ্যাপ)\n"
-                        f"{EM_PHONE} **নম্বর:** `+{phone}`\n"
-                        f"{EM_KEY} **ওটিপি:** `{otp_code}`",
+                        f"📢 <b>নতুন ওটিপি প্রাপ্তি!</b>\n\n"
+                        f"🌐 <b>দেশ:</b> {country_name} (হোয়াটসঅ্যাপ)\n"
+                        f"{EM_PHONE} <b>নম্বর:</b> <code>+{phone}</code>\n"
+                        f"{EM_KEY} <b>ওটিপি:</b> <code>{otp_code}</code>",
                         parse_mode="HTML",
                     )
                 except Exception as e:
@@ -527,7 +525,10 @@ async def cancel_activation(callback: CallbackQuery):
         pass
 
     await callback.answer()
-    await callback.message.answer(f"{EM_CHECK} অর্ডারটি সফলভাবে বাতিল করা হয়েছে। এখন আপনি নতুন নম্বর কিনতে পারবেন।")
+    await callback.message.answer(
+        f"{EM_CHECK} অর্ডারটি সফলভাবে বাতিল করা হয়েছে। এখন আপনি নতুন নম্বর কিনতে পারবেন।",
+        parse_mode="HTML"
+    )
 
 
 # ==================== DEPOSIT SYSTEM ====================
@@ -545,28 +546,28 @@ async def process_deposit_amount(message: Message, state: FSMContext):
     try:
         amount = float(message.text)
         if amount < 0.5:
-            await message.answer(f"{EM_CROSS} মিনিমাম ডিপোজিট ০.৫০$ হতে হবে।")
+            await message.answer(f"{EM_CROSS} মিনিমাম ডিপোজিট ০.৫০$ হতে হবে।", parse_mode="HTML")
             return
 
         await state.update_data(amount=amount)
         binance_id = await get_setting("binance_id", "123456789")
 
         text = (
-            f"{EM_DEPOSIT} **বাইন্যান্স ডিপোজিট তথ্য:**\n\n"
-            f"{EM_ID} **বাইন্যান্স পে আইডি:** `{binance_id}`\n"
-            f"{EM_DOLLAR} **পরিমাণ:** `${amount}`\n\n"
+            f"{EM_DEPOSIT} <b>বাইন্যান্স ডিপোজিট তথ্য:</b>\n\n"
+            f"{EM_ID} <b>বাইন্যান্স পে আইডি:</b> <code>{binance_id}</code>\n"
+            f"{EM_DOLLAR} <b>পরিমাণ:</b> <code>${amount}</code>\n\n"
             f"টাকা পাঠানোর পর ট্রানজেকশন আইডি (TxID) অথবা অর্ডার আইডি লিখুন:"
         )
         await message.answer(text, parse_mode="HTML")
         await state.set_state(DepositStates.waiting_for_txid)
     except ValueError:
-        await message.answer(f"{EM_CROSS} সঠিক সংখ্যা লিখুন:")
+        await message.answer(f"{EM_CROSS} সঠিক সংখ্যা লিখুন:", parse_mode="HTML")
 
 
 @router.message(DepositStates.waiting_for_txid)
 async def process_deposit_txid(message: Message, state: FSMContext):
     await state.update_data(txid=message.text)
-    await message.answer(f"📸 এখন পেমেন্টের স্ক্রিনশট দিন:", parse_mode="HTML")
+    await message.answer("📸 এখন পেমেন্টের স্ক্রিনশট দিন:")
     await state.set_state(DepositStates.waiting_for_screenshot)
 
 
@@ -580,18 +581,19 @@ async def process_deposit_screenshot(message: Message, state: FSMContext):
 
     await state.clear()
     await message.answer(
-        f"{EM_CHECK} ডিপোজিট রিকোয়েস্ট সাবমিট হয়েছে! অ্যাডমিন অনুমোদন করবেন।"
+        f"{EM_CHECK} ডিপোজিট রিকোয়েস্ট সাবমিট হয়েছে! অ্যাডমিন অনুমোদন করবেন।",
+        parse_mode="HTML"
     )
 
     admin_keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=f"✅ অনুমোদন করুন",
+                    text="✅ অনুমোদন করুন",
                     callback_data=f"dep_app_{user_id}_{amount}",
                 ),
                 InlineKeyboardButton(
-                    text=f"❌ বাতিল করুন", callback_data=f"dep_rej_{user_id}"
+                    text="❌ বাতিল করুন", callback_data=f"dep_rej_{user_id}"
                 ),
             ]
         ]
@@ -600,7 +602,7 @@ async def process_deposit_screenshot(message: Message, state: FSMContext):
     await bot.send_photo(
         chat_id=ADMIN_ID,
         photo=photo_id,
-        caption=f"🔔 **নতুন ডিপোজিট!**\n\n👤 ইউজার: `{user_id}`\n{EM_DOLLAR} পরিমাণ: `${amount}`\n🔖 TxID: `{txid}`",
+        caption=f"🔔 <b>নতুন ডিপোজিট!</b>\n\n👤 ইউজার: <code>{user_id}</code>\n{EM_DOLLAR} পরিমাণ: <code>${amount}</code>\n🔖 TxID: <code>{txid}</code>",
         reply_markup=admin_keyboard,
         parse_mode="HTML",
     )
@@ -618,10 +620,11 @@ async def approve_deposit(callback: CallbackQuery):
         {"user_id": user_id}, {"$inc": {"balance": amount}}
     )
     await callback.message.edit_caption(
-        caption=callback.message.caption + f"\n\n{EM_CHECK} **অনুমোদিত হয়েছে**"
+        caption=callback.message.caption + f"\n\n{EM_CHECK} <b>অনুমোদিত হয়েছে</b>",
+        parse_mode="HTML"
     )
     await bot.send_message(
-        user_id, f"{EM_GIFT} ডিপোজিট অনুমোদন করা হয়েছে! `${amount}` {EM_DOLLAR} যোগ করা হয়েছে।"
+        user_id, f"{EM_GIFT} ডিপোজিট অনুমোদন করা হয়েছে! <code>${amount}</code> {EM_DOLLAR} যোগ করা হয়েছে।", parse_mode="HTML"
     )
 
 
@@ -633,9 +636,10 @@ async def reject_deposit(callback: CallbackQuery):
     user_id = int(user_id_str)
 
     await callback.message.edit_caption(
-        caption=callback.message.caption + f"\n\n{EM_CROSS} **বাতিল করা হয়েছে**"
+        caption=callback.message.caption + f"\n\n{EM_CROSS} <b>বাতিল করা হয়েছে</b>",
+        parse_mode="HTML"
     )
-    await bot.send_message(user_id, f"{EM_CROSS} ডিপোজিট রিকোয়েস্টটি বাতিল করা হয়েছে।")
+    await bot.send_message(user_id, f"{EM_CROSS} ডিপোজিট রিকোয়েস্টটি বাতিল করা হয়েছে।", parse_mode="HTML")
 
 
 # ==================== ADMIN PANEL ====================
@@ -646,7 +650,7 @@ async def admin_panel(message: Message):
         return
 
     bot_status = await get_setting("bot_status", True)
-    status_text = "🟢 চালু" if bot_status else "🔴 বন্ধ"
+    status_text = "🟢 चालू" if bot_status else "🔴 বন্ধ"
     col_price = await get_setting("wa_colombia_price", 0.132)
     usa_price = await get_setting("wa_usa_price", 0.134)
 
@@ -675,18 +679,18 @@ async def admin_panel(message: Message):
             ],
             [
                 InlineKeyboardButton(
-                    text=f"📢 ৩টি ফোর্স জয়েন সেটআপ করুন",
+                    text="📢 ৩টি ফোর্স জয়েন সেটআপ করুন",
                     callback_data="admin_manage_channels",
                 )
             ],
         ])
 
     keyboard_buttons.append([
-        InlineKeyboardButton(text=f"📢 ব্রডকাস্ট", callback_data="admin_broadcast")
+        InlineKeyboardButton(text="📢 ব্রডকাস্ট", callback_data="admin_broadcast")
     ])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
-    panel_title = f"{EM_ADMIN} **মেইন অ্যাডমিন প্যানেল:**" if user_id == ADMIN_ID else f"{EM_ADMIN} **সাব-অ্যাডমিন প্যানেল:**"
+    panel_title = f"{EM_ADMIN} <b>মেইন অ্যাডমিন প্যানেল:</b>" if user_id == ADMIN_ID else f"{EM_ADMIN} <b>সাব-অ্যাডমিন প্যানেল:</b>"
     await message.answer(
         f"{panel_title}", reply_markup=keyboard, parse_mode="HTML"
     )
@@ -705,7 +709,7 @@ async def admin_toggle_bot(callback: CallbackQuery):
 async def admin_set_col_price(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
         return
-    await callback.message.answer(f"নতুন **কলম্বিয়া হোয়াটসঅ্যাপ** প্রাইস লিখুন:")
+    await callback.message.answer("নতুন <b>কলম্বিয়া হোয়াটসঅ্যাপ</b> প্রাইস লিখুন:", parse_mode="HTML")
     await state.set_state(AdminStates.waiting_for_colombia_price)
 
 
@@ -717,16 +721,16 @@ async def save_col_price(message: Message, state: FSMContext):
         price = float(message.text)
         await set_setting("wa_colombia_price", price)
         await state.clear()
-        await message.answer(f"{EM_CHECK} কলম্বিয়ার প্রাইস আপডেট করা হয়েছে: `${price}`")
+        await message.answer(f"{EM_CHECK} কলম্বিয়ার প্রাইস আপডেট করা হয়েছে: <code>${price}</code>", parse_mode="HTML")
     except ValueError:
-        await message.answer(f"{EM_CROSS} সঠিক সংখ্যা দিন:")
+        await message.answer(f"{EM_CROSS} সঠিক সংখ্যা দিন:", parse_mode="HTML")
 
 
 @router.callback_query(F.data == "admin_set_usa_price")
 async def admin_set_usa_price(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
         return
-    await callback.message.answer(f"নতুন **USA Virtual হোয়াটসঅ্যাপ** প্রাইস লিখুন:")
+    await callback.message.answer("নতুন <b>USA Virtual হোয়াটসঅ্যাপ</b> প্রাইস লিখুন:", parse_mode="HTML")
     await state.set_state(AdminStates.waiting_for_usa_price)
 
 
@@ -738,9 +742,9 @@ async def save_usa_price(message: Message, state: FSMContext):
         price = float(message.text)
         await set_setting("wa_usa_price", price)
         await state.clear()
-        await message.answer(f"{EM_CHECK} USA Virtual-এর প্রাইস আপডেট করা হয়েছে: `${price}`")
+        await message.answer(f"{EM_CHECK} USA Virtual-এর প্রাইস আপডেট করা হয়েছে: <code>${price}</code>", parse_mode="HTML")
     except ValueError:
-        await message.answer(f"{EM_CROSS} সঠিক সংখ্যা দিন:")
+        await message.answer(f"{EM_CROSS} সঠিক সংখ্যা দিন:", parse_mode="HTML")
 
 
 @router.callback_query(F.data == "admin_manage_channels")
@@ -758,12 +762,12 @@ async def admin_manage_channels(callback: CallbackQuery):
             [InlineKeyboardButton(text=f"১ম চ্যানেল: {ch1}", callback_data="admin_set_ch_1")],
             [InlineKeyboardButton(text=f"২য় চ্যানেল: {ch2}", callback_data="admin_set_ch_2")],
             [InlineKeyboardButton(text=f"৩য় চ্যানেল: {ch3}", callback_data="admin_set_ch_3")],
-            [InlineKeyboardButton(text=f"🗑️ সমস্ত চ্যানেল রিমুভ করুন", callback_data="admin_clear_all_ch")],
+            [InlineKeyboardButton(text="🗑️ সমস্ত চ্যানেল রিমুভ করুন", callback_data="admin_clear_all_ch")],
         ]
     )
 
     await callback.message.answer(
-        f"📢 **ফোর্স জয়েন চ্যানেল ম্যানেজমেন্ট:**\n\nনিচের বাটনগুলোতে ক্লিক করে আলাদাভাবে চ্যানেল Chat ID আইডি যোগ করুন:\n*(অবশ্যই বটকে উক্ত চ্যানেল/গ্রুপে অ্যাডমিন রাখতে হবে)*",
+        "📢 <b>ফোর্স জয়েন চ্যানেল ম্যানেজমেন্ট:</b>\n\nনিচের বাটনগুলোতে ক্লিক করে আলাদাভাবে চ্যানেল Chat ID আইডি যোগ করুন:\n*(অবশ্যই বটকে উক্ত চ্যানেল/গ্রুপে অ্যাডমিন রাখতে হবে)*",
         reply_markup=keyboard,
         parse_mode="HTML",
     )
@@ -773,7 +777,7 @@ async def admin_manage_channels(callback: CallbackQuery):
 async def set_ch_1(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
         return
-    await callback.message.answer(f"১ম চ্যানেলের **Chat ID** পাঠান (যেমন: `-100123456789`):")
+    await callback.message.answer("১ম চ্যানেলের <b>Chat ID</b> পাঠান (যেমন: <code>-100123456789</code>):", parse_mode="HTML")
     await state.set_state(AdminStates.waiting_for_ch1)
 
 
@@ -787,16 +791,16 @@ async def save_ch_1(message: Message, state: FSMContext):
         channels[0] = cid
         await set_setting("force_join_channels", channels)
         await state.clear()
-        await message.answer(f"{EM_CHECK} ১ম চ্যানেল সেট হয়েছে: `{cid}`", parse_mode="HTML")
+        await message.answer(f"{EM_CHECK} ১ম চ্যানেল সেট হয়েছে: <code>{cid}</code>", parse_mode="HTML")
     except ValueError:
-        await message.answer(f"{EM_CROSS} সঠিক Chat ID দিন (যেমন: -100xxxxxxxx):")
+        await message.answer(f"{EM_CROSS} সঠিক Chat ID দিন (যেমন: -100xxxxxxxx):", parse_mode="HTML")
 
 
 @router.callback_query(F.data == "admin_set_ch_2")
 async def set_ch_2(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
         return
-    await callback.message.answer(f"২য় চ্যানেলের **Chat ID** পাঠান (যেমন: `-100123456789`):")
+    await callback.message.answer("২য় চ্যানেলের <b>Chat ID</b> পাঠান (যেমন: <code>-100123456789</code>):", parse_mode="HTML")
     await state.set_state(AdminStates.waiting_for_ch2)
 
 
@@ -810,16 +814,16 @@ async def save_ch_2(message: Message, state: FSMContext):
         channels[1] = cid
         await set_setting("force_join_channels", channels)
         await state.clear()
-        await message.answer(f"{EM_CHECK} ২য় চ্যানেল সেট হয়েছে: `{cid}`", parse_mode="HTML")
+        await message.answer(f"{EM_CHECK} ২য় চ্যানেল সেট হয়েছে: <code>{cid}</code>", parse_mode="HTML")
     except ValueError:
-        await message.answer(f"{EM_CROSS} সঠিক Chat ID দিন (যেমন: -100xxxxxxxx):")
+        await message.answer(f"{EM_CROSS} সঠিক Chat ID দিন (যেমন: -100xxxxxxxx):", parse_mode="HTML")
 
 
 @router.callback_query(F.data == "admin_set_ch_3")
 async def set_ch_3(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
         return
-    await callback.message.answer(f"৩য় চ্যানেলের **Chat ID** পাঠান (যেমন: `-100123456789`):")
+    await callback.message.answer("৩য় চ্যানেলের <b>Chat ID</b> পাঠান (যেমন: <code>-100123456789</code>):", parse_mode="HTML")
     await state.set_state(AdminStates.waiting_for_ch3)
 
 
@@ -833,9 +837,9 @@ async def save_ch_3(message: Message, state: FSMContext):
         channels[2] = cid
         await set_setting("force_join_channels", channels)
         await state.clear()
-        await message.answer(f"{EM_CHECK} ৩য় চ্যানেল সেট হয়েছে: `{cid}`", parse_mode="HTML")
+        await message.answer(f"{EM_CHECK} ৩য় চ্যানেল সেট হয়েছে: <code>{cid}</code>", parse_mode="HTML")
     except ValueError:
-        await message.answer(f"{EM_CROSS} সঠিক Chat ID দিন (যেমন: -100xxxxxxxx):")
+        await message.answer(f"{EM_CROSS} সঠিক Chat ID দিন (যেমন: -100xxxxxxxx):", parse_mode="HTML")
 
 
 @router.callback_query(F.data == "admin_clear_all_ch")
@@ -843,14 +847,14 @@ async def clear_all_channels(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         return
     await set_setting("force_join_channels", [])
-    await callback.message.edit_text(f"{EM_CHECK} সকল ফোর্স জয়েন চ্যানেল মুছে ফেলা হয়েছে।")
+    await callback.message.edit_text(f"{EM_CHECK} সকল ফোর্স জয়েন চ্যানেল মুছে ফেলা হয়েছে।", parse_mode="HTML")
 
 
 @router.callback_query(F.data == "admin_broadcast")
 async def admin_broadcast(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id not in [ADMIN_ID, SUB_ADMIN_ID]:
         return
-    await callback.message.answer(f"ব্রডকাস্ট মেসেজটি লিখুন:")
+    await callback.message.answer("ব্রডকাস্ট মেসেজটি লিখুন:")
     await state.set_state(AdminStates.waiting_for_broadcast)
 
 
@@ -868,13 +872,13 @@ async def execute_broadcast(message: Message, state: FSMContext):
             success += 1
         except Exception:
             pass
-    await message.answer(f"{EM_CHECK} {success} জন ইউজারের কাছে মেসেজ পাঠানো হয়েছে।")
+    await message.answer(f"{EM_CHECK} {success} জন ইউজারের কাছে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
 
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
-    print("Railway Bot Running with Custom Emojis & Strict Order Limit...")
+    print("Railway Bot Running with Proper Custom Emojis in Reply Messages...")
     await dp.start_polling(bot)
 
 
